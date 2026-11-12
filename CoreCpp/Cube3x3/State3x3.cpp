@@ -310,6 +310,43 @@ uint16_t State3x3::getUDSlice() const {
     return coord;
 }
 
+void State3x3::setCornerPerm(uint16_t coord) {
+    static const uint16_t factorials[8] = {5040, 720, 120, 24, 6, 2, 1, 1};
+    std::vector<uint8_t> available = {0, 1, 2, 3, 4, 5, 6, 7};
+    for (int i = 0; i < 7; ++i) {
+        int idx = coord / factorials[i];
+        coord %= factorials[i];
+        cp[i] = available[idx];
+        available.erase(available.begin() + idx);
+    }
+    cp[7] = available[0];
+}
+
+void State3x3::setUDSlice(uint16_t slice) {
+    static const uint16_t nCr[12][5] = {
+        {1, 0, 0, 0, 0}, {1, 1, 0, 0, 0}, {1, 2, 1, 0, 0},
+        {1, 3, 3, 1, 0}, {1, 4, 6, 4, 1}, {1, 5, 10, 10, 5},
+        {1, 6, 15, 20, 15}, {1, 7, 21, 35, 35}, {1, 8, 28, 56, 70},
+        {1, 9, 36, 84, 126}, {1, 10, 45, 120, 210}, {1, 11, 55, 165, 330}
+    };
+    int k = 3;
+    uint8_t sliceEdge = 8;
+    uint8_t otherEdge = 0;
+    for (int i = 11; i >= 0; --i) {
+        if (k >= 0 && i >= k && slice >= nCr[i][k]) {
+            slice -= nCr[i][k];
+            ep[i] = otherEdge++;
+        } else {
+            if (k >= 0) {
+                ep[i] = sliceEdge++;
+                k--;
+            } else {
+                ep[i] = otherEdge++;
+            }
+        }
+    }
+}
+
 uint16_t State3x3::getCornerPerm() const {
     uint16_t coord = 0;
     static const uint16_t factorials[8] = {5040, 720, 120, 24, 6, 2, 1, 1};

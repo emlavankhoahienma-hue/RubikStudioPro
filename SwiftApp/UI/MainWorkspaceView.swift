@@ -362,8 +362,8 @@ public struct MainWorkspaceView: View {
     private func calibrateTablesInBackground() {
         isCalibratingLUT = true
         Task.detached(priority: .userInitiated) {
-            // Static initialization runs in background
-            _ = CubeEngineBridge.solveCubeJson(3, 0, Array(repeating: "0", count: 54).joined(separator: ","))
+            let emptyCsv = Array(repeating: "0", count: 54).joined(separator: ",")
+            _ = CubeEngineBridge.solveCubeJsonC(3, 0, emptyCsv)
             await MainActor.run {
                 self.isCalibratingLUT = false
             }
@@ -391,22 +391,23 @@ public struct MainWorkspaceView: View {
     }
 
     private func runSolve(csv: String) {
-        let jsonStr = CubeEngineBridge.solveCubeJson(Int32(selectedCubeSize),
-                                                    Int32(selectedMethodId),
-                                                    std.string(csv))
-        let swiftJson = String(cString: jsonStr.c_str())
-        if let resp = SolveResponse.parse(jsonString: swiftJson) {
-            self.solveResponse = resp
-            var items: [FlatMoveItem] = []
-            var counter = 0
-            for phase in resp.phases {
-                for m in phase.moves {
-                    items.append(FlatMoveItem(id: counter, phaseName: phase.phaseName, move: m))
-                    counter += 1
+        if let cStr = CubeEngineBridge.solveCubeJsonC(Int32(selectedCubeSize),
+                                                      Int32(selectedMethodId),
+                                                      csv) {
+            let swiftJson = String(cString: cStr)
+            if let resp = SolveResponse.parse(jsonString: swiftJson) {
+                self.solveResponse = resp
+                var items: [FlatMoveItem] = []
+                var counter = 0
+                for phase in resp.phases {
+                    for m in phase.moves {
+                        items.append(FlatMoveItem(id: counter, phaseName: phase.phaseName, move: m))
+                        counter += 1
+                    }
                 }
+                self.flatMoves = items
+                self.currentStepIndex = 0
             }
-            self.flatMoves = items
-            self.currentStepIndex = 0
         }
     }
 

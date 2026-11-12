@@ -61,7 +61,6 @@ static std::string solveResultToJson(const SolveResult& res) {
 }
 
 std::string CubeEngineBridge::solveCubeJson(int cubeSize, int methodId, const std::string& faceletsCsv) {
-    // Parse CSV
     std::vector<uint8_t> colors;
     std::istringstream iss(faceletsCsv);
     std::string token;
@@ -115,4 +114,12 @@ std::string CubeEngineBridge::solveCubeJson(int cubeSize, int methodId, const st
     }
 
     return solveResultToJson(res);
+}
+
+static thread_local std::string tlsJsonBuffer;
+
+const char* CubeEngineBridge::solveCubeJsonC(int cubeSize, int methodId, const char* faceletsCsv) {
+    if (!faceletsCsv) return "";
+    tlsJsonBuffer = solveCubeJson(cubeSize, methodId, std::string(faceletsCsv));
+    return tlsJsonBuffer.c_str();
 }

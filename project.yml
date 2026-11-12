@@ -19,6 +19,8 @@ targets:
       - path: SwiftApp
     settings:
       base:
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/CoreCpp"
         SWIFT_OBJC_BRIDGING_HEADER: "SwiftApp/Bridge/RubikStudioPro-Bridging-Header.h"
         INFOPLIST_GENERATION_MODE: GeneratedFile
         INFOPLIST_KEY_NSCameraUsageDescription: "Quét 6 mặt khối Rubik để nhận diện màu sắc và giải tự động"
