@@ -524,8 +524,7 @@ public struct MainWorkspaceView: View {
             let axis = axes.randomElement()!
             let p = powers.randomElement()!
             let sliceMask: UInt8 = (selectedCubeSize >= 4 && Bool.random()) ? 0x03 : 0x01
-            let notation = "\(axis)-\(p)"
-            moves.append(MoveModel(axis: axis, sliceMask: sliceMask, power: p, notation: notation))
+            moves.append(MoveModel(axis: Int(axis), sliceMask: Int(sliceMask), power: Int(p)))
         }
 
         for m in moves {
