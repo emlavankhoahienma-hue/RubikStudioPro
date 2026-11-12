@@ -22,6 +22,8 @@
     <true/>
     <key>NSCameraUsageDescription</key>
     <string>Quét 6 mặt khối Rubik để nhận diện màu sắc và giải tự động</string>
+    <key>NSMotionUsageDescription</key>
+    <string>Phát hiện chuyển động xoay khối Rubik để tự động chụp các mặt</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UISupportedInterfaceOrientations</key>

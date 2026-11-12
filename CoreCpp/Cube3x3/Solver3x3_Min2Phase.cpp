@@ -114,9 +114,7 @@ void Solver3x3_Min2Phase::initTables() {
         uint16_t curr = qCP.front();
         qCP.pop();
         int8_t d = pruneCP[curr];
-        if (d >= 10) break; // Pruning threshold
         State3x3 s;
-        for (int i = 0; i < 8; ++i) s.cp[i] = i;
         s.setCornerPerm(curr);
         for (int m = 0; m < 10; ++m) {
             State3x3 next = s;
@@ -138,9 +136,8 @@ void Solver3x3_Min2Phase::initTables() {
         uint16_t curr = qEP.front();
         qEP.pop();
         int8_t d = pruneEP[curr];
-        if (d >= 10) break;
         State3x3 s;
-        for (int i = 0; i < 12; ++i) s.ep[i] = i;
+        s.setPhase2EdgePerm(curr);
         for (int m = 0; m < 10; ++m) {
             State3x3 next = s;
             next.applyMove(phase2Moves[m]);

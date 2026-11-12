@@ -131,6 +131,11 @@ public struct MainWorkspaceView: View {
                 ForEach(AppWorkspaceMode.allCases) { mode in
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
+                            if currentMode == .cameraScanner && mode != .cameraScanner {
+                                scanner.stopCamera()
+                            } else if mode == .cameraScanner {
+                                scanner.startCamera()
+                            }
                             currentMode = mode
                         }
                     }) {
@@ -250,8 +255,8 @@ public struct MainWorkspaceView: View {
     // MARK: - 2B. Camera Scanner Content View
     private var cameraScannerContentView: some View {
         ZStack {
-            if scanner.isCameraAuthorized {
-                CameraVideoPreview(session: scanner.captureSession)
+            if scanner.isCameraAuthorized, let session = scanner.captureSession {
+                CameraVideoPreview(session: session)
                     .ignoresSafeArea()
             } else {
                 VStack(spacing: 12) {

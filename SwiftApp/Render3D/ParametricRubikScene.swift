@@ -15,20 +15,6 @@ public struct CubieCoord: Hashable, Sendable {
     }
 }
 
-public class CubieNode: SCNNode {
-    public var gridCoord: CubieCoord
-
-    public init(coord: CubieCoord, geometry: SCNGeometry) {
-        self.gridCoord = coord
-        super.init()
-        self.geometry = geometry
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 @MainActor
 public class ParametricRubikScene: ObservableObject {
     public let scene = SCNScene()
@@ -38,11 +24,12 @@ public class ParametricRubikScene: ObservableObject {
     @Published public var cubeSize: Int = 3
     @Published public var isAnimating: Bool = false
 
-    private var cubieNodes: [CubieNode] = []
+    private var cubieNodes: [SCNNode] = []
+    private var nodeCoords: [SCNNode: CubieCoord] = [:]
     private let cubieSpacing: Float = 1.05
     private let arrowOrangeColor = UIColor(red: 1.0, green: 0.341, blue: 0.133, alpha: 1.0) // #FF5722
 
-    // Standard Face Colors
+    // Standard Face Colors: [0:U, 1:D, 2:L, 3:R, 4:F, 5:B]
     public static let faceColors: [UIColor] = [
         UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0), // 0: U (White)
         UIColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0), // 1: D (Yellow)
@@ -61,45 +48,59 @@ public class ParametricRubikScene: ObservableObject {
     private func setupScene() {
         scene.background.contents = UIColor(red: 0.05, green: 0.055, blue: 0.067, alpha: 1.0) // #0D0E11
 
-        // Camera setup
+        // Camera setup with dynamic distance per cube size
         cameraNode.camera = SCNCamera()
         cameraNode.camera?.fieldOfView = 45
-        cameraNode.position = SCNVector3(x: 4.5, y: 5.5, z: 7.0)
-        cameraNode.look(at: SCNVector3(0, 0, 0))
+        adjustCameraDistance(for: cubeSize)
         scene.rootNode.addChildNode(cameraNode)
 
         // Lighting
-        let omniLightNode = SCNNode()
-        omniLightNode.light = SCNLight()
-        omniLightNode.light?.type = .omni
-        omniLightNode.light?.intensity = 1000
-        omniLightNode.position = SCNVector3(x: 10, y: 15, z: 12)
-        scene.rootNode.addChildNode(omniLightNode)
+        let mainLight = SCNNode()
+        mainLight.light = SCNLight()
+        mainLight.light?.type = .omni
+        mainLight.light?.intensity = 1100
+        mainLight.position = SCNVector3(x: 10, y: 15, z: 14)
+        scene.rootNode.addChildNode(mainLight)
 
-        let ambientLightNode = SCNNode()
-        ambientLightNode.light = SCNLight()
-        ambientLightNode.light?.type = .ambient
-        ambientLightNode.light?.color = UIColor(white: 0.45, alpha: 1.0)
-        scene.rootNode.addChildNode(ambientLightNode)
+        let fillLight = SCNNode()
+        fillLight.light = SCNLight()
+        fillLight.light?.type = .omni
+        fillLight.light?.intensity = 500
+        fillLight.position = SCNVector3(x: -10, y: -10, z: -10)
+        scene.rootNode.addChildNode(fillLight)
+
+        let ambientLight = SCNNode()
+        ambientLight.light = SCNLight()
+        ambientLight.light?.type = .ambient
+        ambientLight.light?.color = UIColor(white: 0.45, alpha: 1.0)
+        scene.rootNode.addChildNode(ambientLight)
 
         scene.rootNode.addChildNode(cubeNode)
     }
 
+    private func adjustCameraDistance(for size: Int) {
+        let dist: Float = (size == 2) ? 6.2 : ((size == 3) ? 7.8 : ((size == 4) ? 9.8 : 12.0))
+        cameraNode.position = SCNVector3(x: dist * 0.6, y: dist * 0.7, z: dist * 0.9)
+        cameraNode.look(at: SCNVector3(0, 0, 0))
+    }
+
     public func rebuildCube(size: Int) {
         self.cubeSize = size
+        adjustCameraDistance(for: size)
         buildCube(size: size)
     }
 
     private func buildCube(size: Int) {
         cubeNode.childNodes.forEach { $0.removeFromParentNode() }
         cubieNodes.removeAll()
+        nodeCoords.removeAll()
 
         let offset = Float(size - 1) / 2.0
 
         for x in 0..<size {
             for y in 0..<size {
                 for z in 0..<size {
-                    // Skip completely interior cubies to optimize rendering
+                    // Skip completely interior cubies
                     let isInterior = (x > 0 && x < size - 1) &&
                                      (y > 0 && y < size - 1) &&
                                      (z > 0 && z < size - 1)
@@ -112,7 +113,7 @@ public class ParametricRubikScene: ObservableObject {
                     blackMat.diffuse.contents = UIColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1.0)
                     blackMat.roughness.contents = 0.35
 
-                    // 6 materials for box faces: [Front, Right, Back, Left, Top, Bottom]
+                    // 6 materials: [0:Front, 1:Right, 2:Back, 3:Left, 4:Top, 5:Bottom]
                     var materials = Array(repeating: blackMat, count: 6)
 
                     // Front (+Z): index 0
@@ -160,7 +161,8 @@ public class ParametricRubikScene: ObservableObject {
 
                     box.materials = materials
 
-                    let cubie = CubieNode(coord: CubieCoord(x: x, y: y, z: z), geometry: box)
+                    let cubie = SCNNode(geometry: box)
+                    cubie.name = "cubie_\(x)_\(y)_\(z)"
                     cubie.position = SCNVector3(
                         x: (Float(x) - offset) * cubieSpacing,
                         y: (Float(y) - offset) * cubieSpacing,
@@ -168,6 +170,7 @@ public class ParametricRubikScene: ObservableObject {
                     )
                     cubeNode.addChildNode(cubie)
                     cubieNodes.append(cubie)
+                    nodeCoords[cubie] = CubieCoord(x: x, y: y, z: z)
                 }
             }
         }
@@ -179,13 +182,13 @@ public class ParametricRubikScene: ObservableObject {
         isAnimating = true
 
         let n = cubeSize
-        var affectedCubies: [CubieNode] = []
+        var affectedCubies: [SCNNode] = []
 
         // Find cubies matching axis and sliceMask
         for cubie in cubieNodes {
-            let c = cubie.gridCoord
+            guard let c = nodeCoords[cubie] else { continue }
             var matches = false
-            for layer in 0..<3 {
+            for layer in 0..<n {
                 if (sliceMask & (1 << layer)) != 0 {
                     switch axis {
                     case 0: // U: layer from top
@@ -258,9 +261,11 @@ public class ParametricRubikScene: ObservableObject {
                     let gx = Int(round((pos.x / self.cubieSpacing) + offset))
                     let gy = Int(round((pos.y / self.cubieSpacing) + offset))
                     let gz = Int(round((pos.z / self.cubieSpacing) + offset))
-                    cubie.gridCoord = CubieCoord(x: max(0, min(n - 1, gx)),
-                                                 y: max(0, min(n - 1, gy)),
-                                                 z: max(0, min(n - 1, gz)))
+                    self.nodeCoords[cubie] = CubieCoord(
+                        x: max(0, min(n - 1, gx)),
+                        y: max(0, min(n - 1, gy)),
+                        z: max(0, min(n - 1, gz))
+                    )
                 }
 
                 pivotNode.removeFromParentNode()
@@ -271,7 +276,8 @@ public class ParametricRubikScene: ObservableObject {
     }
 
     private func createCurvedArrowNode(axis: Int, power: Int) -> SCNNode {
-        let torus = SCNTorus(ringRadius: 1.8, pipeRadius: 0.06)
+        let ringR: CGFloat = CGFloat(Float(cubeSize) * 0.55 + 0.3)
+        let torus = SCNTorus(ringRadius: ringR, pipeRadius: 0.06)
         let mat = SCNMaterial()
         mat.diffuse.contents = arrowOrangeColor
         mat.emission.contents = arrowOrangeColor.withAlphaComponent(0.6)

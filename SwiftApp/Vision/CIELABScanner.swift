@@ -108,7 +108,6 @@ public struct LabColor: Equatable, Sendable {
     }
 
     public var uiColor: Color {
-        // Approximate Lab to sRGB for UI preview
         var y = (L + 16.0) / 116.0
         var x = a / 500.0 + y
         var z = y - b / 200.0
@@ -172,25 +171,43 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     @Published public var isTorchOn: Bool = false
     @Published public var isSessionRunning: Bool = false
 
-    public let captureSession = AVCaptureSession()
-    private let videoOutput = AVCaptureVideoDataOutput()
+    public var captureSession: AVCaptureSession?
+    private var videoOutput: AVCaptureVideoDataOutput?
     private let sessionQueue = DispatchQueue(label: "com.rubikstudio.cameraSessionQueue")
     private let sampleQueue = DispatchQueue(label: "com.rubikstudio.sampleBufferQueue", qos: .userInteractive)
 
-    private let motionManager = CMMotionManager()
-    private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private var motionManager: CMMotionManager?
+    private var hapticFeedback: UIImpactFeedbackGenerator?
 
     // Motion tracking for auto-capture
     private var lastMotionTimestamp: TimeInterval = 0
     private var isStableFor035s: Bool = false
     private var lastAngularVelocity: Double = 0.0
+    private var isConfigured: Bool = false
 
     public override init() {
         super.init()
-        hapticFeedback.prepare()
+        resetAllFaces()
+    }
+
+    public func startCamera() {
+        if hapticFeedback == nil {
+            hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
+            hapticFeedback?.prepare()
+        }
         checkCameraAuthorization()
         startMotionTracking()
-        resetAllFaces()
+    }
+
+    public func stopCamera() {
+        stopMotionTracking()
+        sessionQueue.async { [weak self] in
+            guard let self = self, let session = self.captureSession, session.isRunning else { return }
+            session.stopRunning()
+            Task { @MainActor in
+                self.isSessionRunning = false
+            }
+        }
     }
 
     public func checkCameraAuthorization() {
@@ -215,35 +232,47 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func setupCaptureSession() {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
-            self.captureSession.beginConfiguration()
-            self.captureSession.sessionPreset = .high
-
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                  let input = try? AVCaptureDeviceInput(device: device),
-                  self.captureSession.canAddInput(input) else {
-                self.captureSession.commitConfiguration()
-                return
+            if self.captureSession == nil {
+                self.captureSession = AVCaptureSession()
             }
-            self.captureSession.addInput(input)
+            guard let session = self.captureSession else { return }
 
-            self.videoOutput.alwaysDiscardsLateVideoFrames = true
-            self.videoOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-            ]
-            self.videoOutput.setSampleBufferDelegate(self, queue: self.sampleQueue)
+            if !self.isConfigured {
+                session.beginConfiguration()
+                session.sessionPreset = .high
 
-            if self.captureSession.canAddOutput(self.videoOutput) {
-                self.captureSession.addOutput(self.videoOutput)
-                if let connection = self.videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
+                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                      let input = try? AVCaptureDeviceInput(device: device),
+                      session.canAddInput(input) else {
+                    session.commitConfiguration()
+                    return
                 }
+                session.addInput(input)
+
+                let output = AVCaptureVideoDataOutput()
+                output.alwaysDiscardsLateVideoFrames = true
+                output.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+                ]
+                output.setSampleBufferDelegate(self, queue: self.sampleQueue)
+
+                if session.canAddOutput(output) {
+                    session.addOutput(output)
+                    if let connection = output.connection(with: .video), connection.isVideoOrientationSupported {
+                        connection.videoOrientation = .portrait
+                    }
+                }
+                self.videoOutput = output
+                session.commitConfiguration()
+                self.isConfigured = true
             }
 
-            self.captureSession.commitConfiguration()
-            self.captureSession.startRunning()
+            if !session.isRunning {
+                session.startRunning()
+            }
 
             Task { @MainActor in
-                self.isSessionRunning = self.captureSession.isRunning
+                self.isSessionRunning = session.isRunning
             }
         }
     }
@@ -282,12 +311,19 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     private func startMotionTracking() {
-        guard motionManager.isDeviceMotionAvailable else { return }
-        motionManager.deviceMotionUpdateInterval = 0.05
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+        if motionManager == nil {
+            motionManager = CMMotionManager()
+        }
+        guard let mm = motionManager, mm.isDeviceMotionAvailable, !mm.isDeviceMotionActive else { return }
+        mm.deviceMotionUpdateInterval = 0.05
+        mm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self = self, let motion = motion else { return }
             self.handleMotionUpdate(motion)
         }
+    }
+
+    private func stopMotionTracking() {
+        motionManager?.stopDeviceMotionUpdates()
     }
 
     private func handleMotionUpdate(_ motion: CMDeviceMotion) {
@@ -301,7 +337,6 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
             if (now - lastMotionTimestamp) >= 0.35 && !isStableFor035s {
                 isStableFor035s = true
                 if lastAngularVelocity > 1.2 && !liveSampledColors.isEmpty {
-                    // Turn detected followed by 0.35s stillness -> auto-capture
                     captureCurrentFace()
                 }
             }
@@ -315,12 +350,11 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func captureCurrentFace() {
         let expectedCount = cubeSize * cubeSize
         if !liveSampledColors.isEmpty && liveSampledColors.count == expectedCount {
-            // Classify colors based on Lab distance to standard centroids
             let classified = liveSampledColors.map { colorToFaceIndex($0) }
             savedFacelets[currentFaceIndex] = classified
         }
         faceStatus[currentFaceIndex] = true
-        hapticFeedback.impactOccurred()
+        hapticFeedback?.impactOccurred()
 
         if currentFaceIndex < 5 {
             currentFaceIndex += 1
@@ -335,7 +369,6 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         faceStatus[face] = true
     }
 
-    // Convert LabColor to nearest Rubik face (0:White/U, 1:Yellow/D, 2:Orange/L, 3:Red/R, 4:Green/F, 5:Blue/B)
     private func colorToFaceIndex(_ lab: LabColor) -> Int {
         let standardCentroids: [LabColor] = [
             LabColor(L: 95.0, a: 0.0, b: 0.0),    // 0: White (U)
@@ -385,7 +418,6 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
                     let cellX = startX + c * boxSize
                     let cellY = startY + r * boxSize
 
-                    // Sample central 50% core region
                     let coreInset = max(1, boxSize / 4)
                     var rSum = 0.0, gSum = 0.0, bSum = 0.0
                     var sampleCount = 0
@@ -398,7 +430,6 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
                     for y in minY..<maxY {
                         let rowPtr = baseAddress.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt8.self)
                         for x in minX..<maxX {
-                            // BGRA
                             let b = Double(rowPtr[x * 4])
                             let g = Double(rowPtr[x * 4 + 1])
                             let r = Double(rowPtr[x * 4 + 2])
@@ -422,7 +453,6 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         }
     }
 
-    // Get current CSV representation of the 6*N*N cube facelets
     public func getFaceletsCsv() -> String {
         var flat: [String] = []
         for face in 0..<6 {

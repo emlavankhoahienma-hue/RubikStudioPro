@@ -45,6 +45,7 @@ public:
     void setCornerPerm(uint16_t cpCoord);
 
     uint16_t getPhase2EdgePerm() const;  // 0..40319 (8! - 1 for 8 edges in U/D layers)
+    void setPhase2EdgePerm(uint16_t coord);
     uint16_t getUDSliceSorted() const;   // 0..23 (4! - 1 for slice edges permutation)
 
     // Convert from 54 facelets array (0..5: U, D, L, R, F, B)

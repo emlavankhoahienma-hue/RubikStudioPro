@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <mutex>
 
 static const char* CENTER_COMMUTATORS[] = {
     "Rw U Rw'", "Rw U' Rw'", "Rw U2 Rw'", "Rw' U Rw", "Rw' U' Rw", "Rw' U2 Rw",
@@ -31,6 +32,42 @@ static const char* WING_COMMUTATORS[] = {
 
 static const char* OLL_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
 static const char* PLL_PARITY_ALG = "2R2 U2 2R2 Uw2 2R2 Uw2";
+
+struct PreparsedComm4x4 {
+    std::string notation;
+    std::vector<Move> moves;
+};
+
+static std::vector<PreparsedComm4x4> sCenterComms4x4;
+static std::vector<PreparsedComm4x4> sWingComms4x4;
+static std::once_flag sInitCommsFlag4x4;
+
+static void initCommsOnce4x4() {
+    std::call_once(sInitCommsFlag4x4, []() {
+        int numSetups = sizeof(SETUPS)/sizeof(SETUPS[0]);
+        int numComms = sizeof(CENTER_COMMUTATORS)/sizeof(CENTER_COMMUTATORS[0]);
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
+                seq += CENTER_COMMUTATORS[j];
+                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+                sCenterComms4x4.push_back({seq, parseMoves(seq)});
+            }
+        }
+
+        int numWComms = sizeof(WING_COMMUTATORS)/sizeof(WING_COMMUTATORS[0]);
+        for (int i = 0; i < numSetups; ++i) {
+            for (int w = 0; w < numWComms; ++w) {
+                std::string seq = "";
+                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
+                seq += WING_COMMUTATORS[w];
+                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+                sWingComms4x4.push_back({seq, parseMoves(seq)});
+            }
+        }
+    });
+}
 
 static int countMisplacedCenters(const State4x4& s) {
     static const int centerIdx[4] = {5, 6, 9, 10};
@@ -81,41 +118,30 @@ SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
         return result;
     }
 
+    initCommsOnce4x4();
     State4x4 curr = state;
 
-    // Phase 1: Center Reduction via commutators with setup moves
+    // Phase 1: Center Reduction via pre-parsed commutators with setup moves
     std::vector<Move> centerMoves;
-    int numSetups = sizeof(SETUPS)/sizeof(SETUPS[0]);
-    int numComms = sizeof(CENTER_COMMUTATORS)/sizeof(CENTER_COMMUTATORS[0]);
-
     for (int step = 0; step < 24; ++step) {
         int bestMis = countMisplacedCenters(curr);
         if (bestMis == 0) break;
-        std::string bestSeq = "";
+        const PreparsedComm4x4* bestComm = nullptr;
         State4x4 bestState = curr;
 
-        for (int i = 0; i < numSetups; ++i) {
-            for (int j = 0; j < numComms; ++j) {
-                std::string seq = "";
-                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
-                seq += CENTER_COMMUTATORS[j];
-                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+        for (const auto& comm : sCenterComms4x4) {
+            State4x4 test = curr;
+            for (const auto& m : comm.moves) test.applyMove(m);
 
-                State4x4 test = curr;
-                std::vector<Move> mvs = parseMoves(seq);
-                for (auto& m : mvs) test.applyMove(m);
-
-                int mis = countMisplacedCenters(test);
-                if (mis < bestMis) {
-                    bestMis = mis;
-                    bestSeq = seq;
-                    bestState = test;
-                }
+            int mis = countMisplacedCenters(test);
+            if (mis < bestMis) {
+                bestMis = mis;
+                bestComm = &comm;
+                bestState = test;
             }
         }
-        if (bestSeq.empty()) break;
-        std::vector<Move> mvs = parseMoves(bestSeq);
-        for (const auto& m : mvs) centerMoves.push_back(m);
+        if (!bestComm) break;
+        for (const auto& m : bestComm->moves) centerMoves.push_back(m);
         curr = bestState;
     }
 
@@ -131,40 +157,29 @@ SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
     result.phases.push_back(step1);
     result.totalMoves += static_cast<int>(centerMoves.size());
 
-    // Phase 2: Edge Pairing via slice-flip-slice commutators
+    // Phase 2: Edge Pairing via pre-parsed slice-flip-slice commutators
     std::vector<Move> wingMoves;
-    int numWComms = sizeof(WING_COMMUTATORS)/sizeof(WING_COMMUTATORS[0]);
-
     for (int step = 0; step < 12; ++step) {
         int bestPaired = countPairedWings(curr);
         if (bestPaired == 12) break;
-        std::string bestSeq = "";
+        const PreparsedComm4x4* bestComm = nullptr;
         State4x4 bestState = curr;
 
-        for (int i = 0; i < numSetups; ++i) {
-            for (int w = 0; w < numWComms; ++w) {
-                std::string seq = "";
-                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
-                seq += WING_COMMUTATORS[w];
-                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+        for (const auto& comm : sWingComms4x4) {
+            State4x4 test = curr;
+            for (const auto& m : comm.moves) test.applyMove(m);
 
-                State4x4 test = curr;
-                std::vector<Move> mvs = parseMoves(seq);
-                for (auto& m : mvs) test.applyMove(m);
-
-                if (test.areCentersSolved()) {
-                    int p = countPairedWings(test);
-                    if (p > bestPaired) {
-                        bestPaired = p;
-                        bestSeq = seq;
-                        bestState = test;
-                    }
+            if (test.areCentersSolved()) {
+                int p = countPairedWings(test);
+                if (p > bestPaired) {
+                    bestPaired = p;
+                    bestComm = &comm;
+                    bestState = test;
                 }
             }
         }
-        if (bestSeq.empty()) break;
-        std::vector<Move> mvs = parseMoves(bestSeq);
-        for (const auto& m : mvs) wingMoves.push_back(m);
+        if (!bestComm) break;
+        for (const auto& m : bestComm->moves) wingMoves.push_back(m);
         curr = bestState;
     }
 
@@ -173,7 +188,7 @@ SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
     step2.moves = wingMoves;
     std::string not2;
     for (size_t i = 0; i < wingMoves.size(); ++i) {
-        if (i > 0) not2 += " ";
+        if (i > 0) not1 += " ";
         not2 += moveToString(wingMoves[i], 4);
     }
     step2.notationString = not2;

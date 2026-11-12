@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <mutex>
 
 static const char* CENTER_5x5_COMMS[] = {
     "Rw U Rw'", "Rw U' Rw'", "Rw U2 Rw'", "Rw' U Rw", "Rw' U' Rw", "Rw' U2 Rw",
@@ -30,6 +31,42 @@ static const char* TREDGE_COMMS[] = {
 };
 
 static const char* EDGE_FLIP_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
+
+struct PreparsedComm5x5 {
+    std::string notation;
+    std::vector<Move> moves;
+};
+
+static std::vector<PreparsedComm5x5> sCenterComms5x5;
+static std::vector<PreparsedComm5x5> sTredgeComms5x5;
+static std::once_flag sInitCommsFlag5x5;
+
+static void initCommsOnce5x5() {
+    std::call_once(sInitCommsFlag5x5, []() {
+        int numSetups = sizeof(SETUPS_5x5)/sizeof(SETUPS_5x5[0]);
+        int numComms = sizeof(CENTER_5x5_COMMS)/sizeof(CENTER_5x5_COMMS[0]);
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (SETUPS_5x5[i][0] != '\0') seq += std::string(SETUPS_5x5[i]) + " ";
+                seq += CENTER_5x5_COMMS[j];
+                if (INV_SETUPS_5x5[i][0] != '\0') seq += " " + std::string(INV_SETUPS_5x5[i]);
+                sCenterComms5x5.push_back({seq, parseMoves(seq)});
+            }
+        }
+
+        int numTComms = sizeof(TREDGE_COMMS)/sizeof(TREDGE_COMMS[0]);
+        for (int i = 0; i < numSetups; ++i) {
+            for (int t = 0; t < numTComms; ++t) {
+                std::string seq = "";
+                if (SETUPS_5x5[i][0] != '\0') seq += std::string(SETUPS_5x5[i]) + " ";
+                seq += TREDGE_COMMS[t];
+                if (INV_SETUPS_5x5[i][0] != '\0') seq += " " + std::string(INV_SETUPS_5x5[i]);
+                sTredgeComms5x5.push_back({seq, parseMoves(seq)});
+            }
+        }
+    });
+}
 
 static int countMisplacedCenters5x5(const State5x5& s) {
     int misplaced = 0;
@@ -90,41 +127,30 @@ SolveResult Solver5x5_Optimal::solveState(const State5x5& state) {
         return result;
     }
 
+    initCommsOnce5x5();
     State5x5 curr = state;
-    int numSetups = sizeof(SETUPS_5x5)/sizeof(SETUPS_5x5[0]);
-    int numComms = sizeof(CENTER_5x5_COMMS)/sizeof(CENTER_5x5_COMMS[0]);
-    int numTComms = sizeof(TREDGE_COMMS)/sizeof(TREDGE_COMMS[0]);
 
-    // Phase 1: 3x3 Center Reduction via commutators with setups
+    // Phase 1: 3x3 Center Reduction via pre-parsed commutators with setups
     std::vector<Move> centerMoves;
     for (int step = 0; step < 48; ++step) {
         int bestMis = countMisplacedCenters5x5(curr);
         if (bestMis == 0) break;
-        std::string bestSeq = "";
+        const PreparsedComm5x5* bestComm = nullptr;
         State5x5 bestState = curr;
 
-        for (int i = 0; i < numSetups; ++i) {
-            for (int j = 0; j < numComms; ++j) {
-                std::string seq = "";
-                if (SETUPS_5x5[i][0] != '\0') seq += std::string(SETUPS_5x5[i]) + " ";
-                seq += CENTER_5x5_COMMS[j];
-                if (INV_SETUPS_5x5[i][0] != '\0') seq += " " + std::string(INV_SETUPS_5x5[i]);
+        for (const auto& comm : sCenterComms5x5) {
+            State5x5 test = curr;
+            for (const auto& m : comm.moves) test.applyMove(m);
 
-                State5x5 test = curr;
-                std::vector<Move> mvs = parseMoves(seq);
-                for (auto& m : mvs) test.applyMove(m);
-
-                int mis = countMisplacedCenters5x5(test);
-                if (mis < bestMis) {
-                    bestMis = mis;
-                    bestSeq = seq;
-                    bestState = test;
-                }
+            int mis = countMisplacedCenters5x5(test);
+            if (mis < bestMis) {
+                bestMis = mis;
+                bestComm = &comm;
+                bestState = test;
             }
         }
-        if (bestSeq.empty()) break;
-        std::vector<Move> mvs = parseMoves(bestSeq);
-        for (const auto& m : mvs) centerMoves.push_back(m);
+        if (!bestComm) break;
+        for (const auto& m : bestComm->moves) centerMoves.push_back(m);
         curr = bestState;
     }
 
@@ -140,38 +166,29 @@ SolveResult Solver5x5_Optimal::solveState(const State5x5& state) {
     result.phases.push_back(step1);
     result.totalMoves += static_cast<int>(centerMoves.size());
 
-    // Phase 2: Tredge Pairing via slice-flip-slice commutators
+    // Phase 2: Tredge Pairing via pre-parsed slice-flip-slice commutators
     std::vector<Move> tredgeMoves;
     for (int step = 0; step < 24; ++step) {
         int bestPaired = countPairedTredges(curr);
         if (bestPaired == 12) break;
-        std::string bestSeq = "";
+        const PreparsedComm5x5* bestComm = nullptr;
         State5x5 bestState = curr;
 
-        for (int i = 0; i < numSetups; ++i) {
-            for (int t = 0; t < numTComms; ++t) {
-                std::string seq = "";
-                if (SETUPS_5x5[i][0] != '\0') seq += std::string(SETUPS_5x5[i]) + " ";
-                seq += TREDGE_COMMS[t];
-                if (INV_SETUPS_5x5[i][0] != '\0') seq += " " + std::string(INV_SETUPS_5x5[i]);
+        for (const auto& comm : sTredgeComms5x5) {
+            State5x5 test = curr;
+            for (const auto& m : comm.moves) test.applyMove(m);
 
-                State5x5 test = curr;
-                std::vector<Move> mvs = parseMoves(seq);
-                for (auto& m : mvs) test.applyMove(m);
-
-                if (test.areCentersSolved()) {
-                    int p = countPairedTredges(test);
-                    if (p > bestPaired) {
-                        bestPaired = p;
-                        bestSeq = seq;
-                        bestState = test;
-                    }
+            if (test.areCentersSolved()) {
+                int p = countPairedTredges(test);
+                if (p > bestPaired) {
+                    bestPaired = p;
+                    bestComm = &comm;
+                    bestState = test;
                 }
             }
         }
-        if (bestSeq.empty()) break;
-        std::vector<Move> mvs = parseMoves(bestSeq);
-        for (const auto& m : mvs) tredgeMoves.push_back(m);
+        if (!bestComm) break;
+        for (const auto& m : bestComm->moves) tredgeMoves.push_back(m);
         curr = bestState;
     }
 

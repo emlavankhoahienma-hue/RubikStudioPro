@@ -61,59 +61,80 @@ static std::string solveResultToJson(const SolveResult& res) {
 }
 
 std::string CubeEngineBridge::solveCubeJson(int cubeSize, int methodId, const std::string& faceletsCsv) {
-    std::vector<uint8_t> colors;
-    std::istringstream iss(faceletsCsv);
-    std::string token;
-    while (std::getline(iss, token, ',')) {
-        if (!token.empty()) {
-            colors.push_back(static_cast<uint8_t>(std::stoi(token)));
+    try {
+        std::vector<uint8_t> colors;
+        std::istringstream iss(faceletsCsv);
+        std::string token;
+        while (std::getline(iss, token, ',')) {
+            // Trim whitespace
+            size_t first = token.find_first_not_of(" \t\r\n");
+            if (first == std::string::npos) continue;
+            size_t last = token.find_last_not_of(" \t\r\n");
+            std::string trimmed = token.substr(first, (last - first + 1));
+            if (!trimmed.empty()) {
+                colors.push_back(static_cast<uint8_t>(std::stoi(trimmed)));
+            }
         }
-    }
 
-    SolveResult res;
-    size_t expectedSize = 6 * cubeSize * cubeSize;
-    if (colors.size() != expectedSize) {
-        res.isValid = false;
-        res.errorMessage = "Số lượng ô màu không khớp với kích thước Rubik " + std::to_string(cubeSize) + "x" + std::to_string(cubeSize);
-        res.totalMoves = 0;
-        res.solveTimeMs = 0;
+        SolveResult res;
+        size_t expectedSize = 6 * cubeSize * cubeSize;
+        if (colors.size() != expectedSize) {
+            res.isValid = false;
+            res.errorMessage = "Số lượng ô màu không khớp với kích thước Rubik " + std::to_string(cubeSize) + "x" + std::to_string(cubeSize);
+            res.totalMoves = 0;
+            res.solveTimeMs = 0;
+            return solveResultToJson(res);
+        }
+
+        if (cubeSize == 2) {
+            if (methodId == 0) {
+                res = Solver2x2_Optimal::solve(colors.data());
+            } else {
+                res = Solver2x2_OrtegaCLL::solve(colors.data());
+            }
+        } else if (cubeSize == 3) {
+            if (methodId == 0) {
+                res = Solver3x3_Min2Phase::solve(colors.data());
+            } else if (methodId == 1) {
+                res = Solver3x3_CFOP::solve(colors.data());
+            } else {
+                res = Solver3x3_Roux::solve(colors.data());
+            }
+        } else if (cubeSize == 4) {
+            if (methodId == 0) {
+                res = Solver4x4_Optimal::solve(colors.data());
+            } else {
+                res = Solver4x4_Yau::solve(colors.data());
+            }
+        } else if (cubeSize == 5) {
+            if (methodId == 0) {
+                res = Solver5x5_Optimal::solve(colors.data());
+            } else {
+                res = Solver5x5_Freeslice::solve(colors.data());
+            }
+        } else {
+            res.isValid = false;
+            res.errorMessage = "Kích thước Rubik không được hỗ trợ: " + std::to_string(cubeSize);
+            res.totalMoves = 0;
+            res.solveTimeMs = 0;
+        }
+
         return solveResultToJson(res);
+    } catch (const std::exception& e) {
+        SolveResult errRes;
+        errRes.isValid = false;
+        errRes.errorMessage = std::string("Lỗi xử lý thuật toán: ") + e.what();
+        errRes.totalMoves = 0;
+        errRes.solveTimeMs = 0;
+        return solveResultToJson(errRes);
+    } catch (...) {
+        SolveResult errRes;
+        errRes.isValid = false;
+        errRes.errorMessage = "Lỗi ngoại lệ không xác định khi giải khối.";
+        errRes.totalMoves = 0;
+        errRes.solveTimeMs = 0;
+        return solveResultToJson(errRes);
     }
-
-    if (cubeSize == 2) {
-        if (methodId == 0) {
-            res = Solver2x2_Optimal::solve(colors.data());
-        } else {
-            res = Solver2x2_OrtegaCLL::solve(colors.data());
-        }
-    } else if (cubeSize == 3) {
-        if (methodId == 0) {
-            res = Solver3x3_Min2Phase::solve(colors.data());
-        } else if (methodId == 1) {
-            res = Solver3x3_CFOP::solve(colors.data());
-        } else {
-            res = Solver3x3_Roux::solve(colors.data());
-        }
-    } else if (cubeSize == 4) {
-        if (methodId == 0) {
-            res = Solver4x4_Optimal::solve(colors.data());
-        } else {
-            res = Solver4x4_Yau::solve(colors.data());
-        }
-    } else if (cubeSize == 5) {
-        if (methodId == 0) {
-            res = Solver5x5_Optimal::solve(colors.data());
-        } else {
-            res = Solver5x5_Freeslice::solve(colors.data());
-        }
-    } else {
-        res.isValid = false;
-        res.errorMessage = "Kích thước Rubik không được hỗ trợ: " + std::to_string(cubeSize);
-        res.totalMoves = 0;
-        res.solveTimeMs = 0;
-    }
-
-    return solveResultToJson(res);
 }
 
 static thread_local std::string tlsJsonBuffer;

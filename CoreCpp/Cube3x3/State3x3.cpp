@@ -374,6 +374,19 @@ uint16_t State3x3::getPhase2EdgePerm() const {
     return coord;
 }
 
+void State3x3::setPhase2EdgePerm(uint16_t coord) {
+    static const uint16_t factorials[8] = {5040, 720, 120, 24, 6, 2, 1, 1};
+    std::vector<uint8_t> available = {0, 1, 2, 3, 4, 5, 6, 7};
+    for (int i = 0; i < 7; ++i) {
+        int idx = coord / factorials[i];
+        coord %= factorials[i];
+        ep[i] = available[idx];
+        available.erase(available.begin() + idx);
+    }
+    ep[7] = available[0];
+    for (int i = 8; i < 12; ++i) ep[i] = i;
+}
+
 uint16_t State3x3::getUDSliceSorted() const {
     // Permutation of the 4 slice edges (ep[8..11])
     uint16_t coord = 0;
