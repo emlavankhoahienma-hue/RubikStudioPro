@@ -1,0 +1,53 @@
+name: Build iOS Rubik Studio Pro
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    runs-on: macos-14
+    steps:
+      - name: 1. Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 2. Select Stable Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: 3. Pre-Verify C++20 Solvers (Fast Fail Check)
+        run: |
+          clang++ -std=c++20 -I./CoreCpp -fsyntax-only CoreCpp/Common/*.hpp
+          clang++ -std=c++20 -I./CoreCpp -c CoreCpp/Cube2x2/*.cpp CoreCpp/Cube3x3/*.cpp CoreCpp/Cube4x4/*.cpp CoreCpp/Cube5x5/*.cpp CoreCpp/Common/*.cpp
+          rm -f *.o
+
+      - name: 4. Generate Xcode Project via XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: 5. Build iOS App (Unsigned Release for Device)
+        run: |
+          xcodebuild clean build \
+            -project RubikStudioPro.xcodeproj \
+            -scheme RubikStudioPro \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 6. Package Unsigned .IPA Artifact
+        run: |
+          mkdir -p Payload
+          cp -r build_output/Build/Products/Release-iphoneos/RubikStudioPro.app Payload/
+          zip -r9 RubikStudioPro-Unsigned.ipa Payload
+
+      - name: 7. Upload .IPA to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RubikStudioPro-Unsigned-IPA
+          path: RubikStudioPro-Unsigned.ipa
