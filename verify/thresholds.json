@@ -1,0 +1,74 @@
+{
+  "version": "1.0.0",
+  "locked": true,
+  "thresholds": {
+    "cube2x2": {
+      "solve_success_rate": 1.0,
+      "len_mean": 9.5,
+      "len_p95": 11,
+      "len_max": 11,
+      "time_p50_ms": 2.0,
+      "time_p95_ms": 10.0,
+      "time_p99_ms": 25.0,
+      "init_time_ms": 50.0,
+      "peak_ram_mb": 15.0,
+      "validator_mutation_reject_rate": 1.0,
+      "color_accuracy": {
+        "direct_sun": 0.98,
+        "warm_indoor": 0.95,
+        "cool_shadow": 0.95
+      }
+    },
+    "cube3x3": {
+      "solve_success_rate": 1.0,
+      "len_mean": 22.0,
+      "len_p95": 24,
+      "len_max": 25,
+      "time_p50_ms": 150.0,
+      "time_p95_ms": 800.0,
+      "time_p99_ms": 1500.0,
+      "init_time_ms": 600.0,
+      "peak_ram_mb": 35.0,
+      "validator_mutation_reject_rate": 1.0,
+      "color_accuracy": {
+        "direct_sun": 0.98,
+        "warm_indoor": 0.95,
+        "cool_shadow": 0.95
+      }
+    },
+    "cube4x4": {
+      "solve_success_rate": 1.0,
+      "len_mean": 75.0,
+      "len_p95": 90,
+      "len_max": 100,
+      "time_p50_ms": 1500.0,
+      "time_p95_ms": 4000.0,
+      "time_p99_ms": 8000.0,
+      "init_time_ms": 200.0,
+      "peak_ram_mb": 45.0,
+      "validator_mutation_reject_rate": 1.0,
+      "color_accuracy": {
+        "direct_sun": 0.98,
+        "warm_indoor": 0.95,
+        "cool_shadow": 0.95
+      }
+    },
+    "cube5x5": {
+      "solve_success_rate": 1.0,
+      "len_mean": 120.0,
+      "len_p95": 150,
+      "len_max": 165,
+      "time_p50_ms": 3000.0,
+      "time_p95_ms": 8000.0,
+      "time_p99_ms": 12000.0,
+      "init_time_ms": 300.0,
+      "peak_ram_mb": 55.0,
+      "validator_mutation_reject_rate": 1.0,
+      "color_accuracy": {
+        "direct_sun": 0.98,
+        "warm_indoor": 0.95,
+        "cool_shadow": 0.95
+      }
+    }
+  }
+}

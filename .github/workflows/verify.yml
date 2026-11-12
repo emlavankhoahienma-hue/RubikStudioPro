@@ -1,0 +1,36 @@
+name: Verify Rubik Solvers
+
+on:
+  workflow_call:
+    outputs:
+      verify_status:
+        description: "Status of verification suite"
+        value: ${{ jobs.verify-core.result }}
+  workflow_dispatch:
+
+jobs:
+  verify-core:
+    runs-on: macos-latest
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3. Compile Core Verification Binary
+        run: |
+          clang++ -std=c++20 -O3 -I./CoreCpp \
+            verify/verify_engine.cpp \
+            CoreCpp/Common/*.cpp \
+            CoreCpp/Cube2x2/*.cpp \
+            CoreCpp/Cube3x3/*.cpp \
+            CoreCpp/Cube4x4/*.cpp \
+            CoreCpp/Cube5x5/*.cpp \
+            -o verify_engine_runner
+
+      - name: 4. Execute Verification Suite
+        run: |
+          ./verify_engine_runner --thresholds verify/thresholds.json --seed 42 --runs 10
