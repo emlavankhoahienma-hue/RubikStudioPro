@@ -1,16 +1,38 @@
 #include "Cube4x4/Solver4x4_Optimal.hpp"
+#include "Cube3x3/Solver3x3_Min2Phase.hpp"
 #include <chrono>
+#include <vector>
+#include <string>
 #include <algorithm>
 
-// Moves for center reduction (wide and inner slice turns)
-static const Move centerCandidateMoves[12] = {
-    {0, 0x03, 1}, {0, 0x03, 2}, {0, 0x03, 3}, // Uw, Uw2, Uw'
-    {1, 0x03, 1}, {1, 0x03, 2}, {1, 0x03, 3}, // Dw, Dw2, Dw'
-    {3, 0x03, 1}, {3, 0x03, 2}, {3, 0x03, 3}, // Rw, Rw2, Rw'
-    {4, 0x03, 1}, {4, 0x03, 2}, {4, 0x03, 3}  // Fw, Fw2, Fw'
+static const char* CENTER_COMMUTATORS[] = {
+    "Rw U Rw'", "Rw U' Rw'", "Rw U2 Rw'", "Rw' U Rw", "Rw' U' Rw", "Rw' U2 Rw",
+    "Lw U Lw'", "Lw U' Lw'", "Lw U2 Lw'", "Lw' U Lw", "Lw' U' Lw", "Lw' U2 Lw",
+    "Fw U Fw'", "Fw U' Fw'", "Fw U2 Fw'", "Fw' U Fw", "Fw' U' Fw", "Fw' U2 Fw",
+    "Bw U Bw'", "Bw U' Bw'", "Bw U2 Bw'", "Bw' U Bw", "Bw' U' Bw", "Bw' U2 Bw",
+    "Rw D Rw'", "Rw D' Rw'", "Rw D2 Rw'", "Rw' D Rw", "Rw' D' Rw", "Rw' D2 Rw",
+    "Lw D Lw'", "Lw D' Lw'", "Lw D2 Lw'", "Lw' D Lw", "Lw' D' Lw", "Lw' D2 Lw"
 };
 
-static int centerHeuristic(const State4x4& s) {
+static const char* SETUPS[] = {
+    "", "U", "U'", "U2", "D", "D'", "D2", "L", "L'", "L2", "R", "R'", "R2", "F", "F'", "F2", "B", "B'", "B2"
+};
+
+static const char* INVERSE_SETUPS[] = {
+    "", "U'", "U", "U2", "D'", "D", "D2", "L'", "L", "L2", "R'", "R", "R2", "F'", "F", "F2", "B'", "B", "B2"
+};
+
+static const char* WING_COMMUTATORS[] = {
+    "Uw' R U R' F R' F' R Uw",
+    "Dw R U R' F R' F' R Dw'",
+    "Uw' F' L F L' U' L U Uw",
+    "Dw F' L F L' U' L U Dw'"
+};
+
+static const char* OLL_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
+static const char* PLL_PARITY_ALG = "2R2 U2 2R2 Uw2 2R2 Uw2";
+
+static int countMisplacedCenters(const State4x4& s) {
     static const int centerIdx[4] = {5, 6, 9, 10};
     int misplaced = 0;
     for (int face = 0; face < 6; ++face) {
@@ -18,45 +40,34 @@ static int centerHeuristic(const State4x4& s) {
             if (s.facelets[face * 16 + centerIdx[i]] != face) misplaced++;
         }
     }
-    return (misplaced + 3) / 4;
+    return misplaced;
 }
 
-static bool searchCenters(State4x4& s, int depth, int lastAxis, std::vector<Move>& path) {
-    if (s.areCentersSolved()) return true;
-    if (depth == 0) return false;
-    if (centerHeuristic(s) > depth) return false;
-
-    for (int m = 0; m < 12; ++m) {
-        const Move& move = centerCandidateMoves[m];
-        if (move.axis == lastAxis) continue;
-
-        State4x4 next = s;
-        next.applyMove(move);
-        path.push_back(move);
-
-        if (searchCenters(next, depth - 1, move.axis, path)) {
-            return true;
+static int countPairedWings(const State4x4& s) {
+    struct WingPairInfo { int w1_1, w1_2, w2_1, w2_2; };
+    static const WingPairInfo wingPairs[12] = {
+        {0*16 + 7,  3*16 + 1,  0*16 + 11, 3*16 + 2},
+        {0*16 + 13, 4*16 + 1,  0*16 + 14, 4*16 + 2},
+        {0*16 + 4,  2*16 + 1,  0*16 + 8,  2*16 + 2},
+        {0*16 + 1,  5*16 + 2,  0*16 + 2,  5*16 + 1},
+        {1*16 + 7,  3*16 + 14, 1*16 + 11, 3*16 + 13},
+        {1*16 + 1,  4*16 + 13, 1*16 + 2,  4*16 + 14},
+        {1*16 + 4,  2*16 + 13, 1*16 + 8,  2*16 + 14},
+        {1*16 + 13, 5*16 + 14, 1*16 + 14, 5*16 + 13},
+        {4*16 + 7,  3*16 + 4,  4*16 + 11, 3*16 + 8},
+        {4*16 + 4,  2*16 + 7,  4*16 + 8,  2*16 + 11},
+        {5*16 + 7,  2*16 + 4,  5*16 + 11, 2*16 + 8},
+        {5*16 + 4,  3*16 + 7,  5*16 + 8,  3*16 + 11}
+    };
+    int paired = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (s.facelets[wingPairs[i].w1_1] == s.facelets[wingPairs[i].w2_1] &&
+            s.facelets[wingPairs[i].w1_2] == s.facelets[wingPairs[i].w2_2]) {
+            paired++;
         }
-
-        path.pop_back();
     }
-    return false;
+    return paired;
 }
-
-// Canonical edge-pairing commutators
-static const char* WING_PAIR_ALGS[4] = {
-    "Uw' R U R' F R' F' R Uw",
-    "Dw R U R' F R' F' R Dw'",
-    "Uw' F' L F L' U' L U Uw",
-    "Dw F' L F L' U' L U Dw'"
-};
-
-// OLL Parity: Rw U2 x Rw U2 Rw U2 Rw' U2 Lw U2 Rw' U2 Rw U2 Rw' U2 Rw'
-// In pure slice notation: Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2
-static const char* OLL_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
-
-// PLL Parity: 2R2 U2 2R2 Uw2 2R2 Uw2
-static const char* PLL_PARITY_ALG = "2R2 U2 2R2 Uw2 2R2 Uw2";
 
 SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -72,19 +83,40 @@ SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
 
     State4x4 curr = state;
 
-    // Phase 1: Center Reduction
+    // Phase 1: Center Reduction via commutators with setup moves
     std::vector<Move> centerMoves;
-    if (!curr.areCentersSolved()) {
-        for (int d = 1; d <= 8; ++d) {
-            centerMoves.clear();
-            State4x4 temp = curr;
-            if (searchCenters(temp, d, -1, centerMoves)) {
-                for (const auto& m : centerMoves) {
-                    curr.applyMove(m);
+    int numSetups = sizeof(SETUPS)/sizeof(SETUPS[0]);
+    int numComms = sizeof(CENTER_COMMUTATORS)/sizeof(CENTER_COMMUTATORS[0]);
+
+    for (int step = 0; step < 24; ++step) {
+        int bestMis = countMisplacedCenters(curr);
+        if (bestMis == 0) break;
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
+                seq += CENTER_COMMUTATORS[j];
+                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                int mis = countMisplacedCenters(test);
+                if (mis < bestMis) {
+                    bestMis = mis;
+                    bestSeq = seq;
+                    bestState = test;
                 }
-                break;
             }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) centerMoves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step1;
@@ -99,21 +131,41 @@ SolveResult Solver4x4_Optimal::solveState(const State4x4& state) {
     result.phases.push_back(step1);
     result.totalMoves += static_cast<int>(centerMoves.size());
 
-    // Phase 2: Edge Pairing
+    // Phase 2: Edge Pairing via slice-flip-slice commutators
     std::vector<Move> wingMoves;
-    if (!curr.areWingsPaired()) {
-        for (int iter = 0; iter < 12 && !curr.areWingsPaired(); ++iter) {
-            for (int k = 0; k < 4; ++k) {
-                State4x4 test = curr;
-                std::vector<Move> alg = parseMoves(WING_PAIR_ALGS[k]);
-                for (const auto& m : alg) test.applyMove(m);
+    int numWComms = sizeof(WING_COMMUTATORS)/sizeof(WING_COMMUTATORS[0]);
 
-                // If pairing improved, keep it
-                curr = test;
-                for (const auto& m : alg) wingMoves.push_back(m);
-                if (curr.areWingsPaired()) break;
+    for (int step = 0; step < 12; ++step) {
+        int bestPaired = countPairedWings(curr);
+        if (bestPaired == 12) break;
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int w = 0; w < numWComms; ++w) {
+                std::string seq = "";
+                if (SETUPS[i][0] != '\0') seq += std::string(SETUPS[i]) + " ";
+                seq += WING_COMMUTATORS[w];
+                if (INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                if (test.areCentersSolved()) {
+                    int p = countPairedWings(test);
+                    if (p > bestPaired) {
+                        bestPaired = p;
+                        bestSeq = seq;
+                        bestState = test;
+                    }
+                }
             }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) wingMoves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step2;

@@ -1,34 +1,81 @@
 #include "Cube4x4/Solver4x4_Yau.hpp"
 #include "Cube3x3/Solver3x3_CFOP.hpp"
 #include <chrono>
+#include <vector>
+#include <string>
+#include <algorithm>
 
-static const char* YAU_OPPOSITE_CENTERS_ALGS[2] = {
-    "Rw U Rw' U Rw U2 Rw'",
-    "Lw' U Lw U' Lw' U2 Lw"
+static const char* YAU_SETUPS[] = {
+    "", "U", "U'", "U2", "D", "D'", "D2", "L", "L'", "L2", "R", "R'", "R2", "F", "F'", "F2", "B", "B'", "B2"
 };
 
-static const char* YAU_CROSS_EDGES_ALGS[3] = {
+static const char* YAU_INVERSE_SETUPS[] = {
+    "", "U'", "U", "U2", "D'", "D", "D2", "L'", "L", "L2", "R'", "R", "R2", "F'", "F", "F2", "B'", "B", "B2"
+};
+
+static const char* YAU_CENTER_COMMS[] = {
+    "Rw U Rw'", "Rw U' Rw'", "Rw U2 Rw'", "Rw' U Rw", "Rw' U' Rw", "Rw' U2 Rw",
+    "Lw U Lw'", "Lw U' Lw'", "Lw U2 Lw'", "Lw' U Lw", "Lw' U' Lw", "Lw' U2 Lw",
+    "Fw U Fw'", "Fw U' Fw'", "Fw U2 Fw'", "Fw' U Fw", "Fw' U' Fw", "Fw' U2 Fw",
+    "Bw U Bw'", "Bw U' Bw'", "Bw U2 Bw'", "Bw' U Bw", "Bw' U' Bw", "Bw' U2 Bw"
+};
+
+static const char* YAU_WING_COMMS[] = {
     "Uw' R U R' F R' F' R Uw",
     "Dw R U R' F R' F' R Dw'",
-    "Uw' F' L F L' U' L U Uw"
-};
-
-static const char* YAU_L4C_ALGS[4] = {
-    "Rw U Rw' U' Rw' F Rw",
-    "Fw R U R' U' Fw'",
-    "Rw' F Rw2 U' Rw'",
-    "3Rw U 3Rw' U' 3Rw' F 3Rw"
-};
-
-static const char* YAU_323_PAIRING_ALGS[4] = {
-    "Uw' R U R' F R' F' R Uw",
-    "Dw R U R' F R' F' R Dw'",
-    "Uw R U' R' F R' F' R Uw'",
-    "Dw' R U' R' F R' F' R Dw"
+    "Uw' F' L F L' U' L U Uw",
+    "Dw F' L F L' U' L U Dw'"
 };
 
 static const char* OLL_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
 static const char* PLL_PARITY_ALG = "2R2 U2 2R2 Uw2 2R2 Uw2";
+
+static int countMisplacedCentersYau(const State4x4& s, int faceA = 0, int faceB = 1) {
+    static const int centerIdx[4] = {5, 6, 9, 10};
+    int misplaced = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (s.facelets[faceA * 16 + centerIdx[i]] != faceA) misplaced++;
+        if (s.facelets[faceB * 16 + centerIdx[i]] != faceB) misplaced++;
+    }
+    return misplaced;
+}
+
+static int countTotalMisplacedCenters(const State4x4& s) {
+    static const int centerIdx[4] = {5, 6, 9, 10};
+    int misplaced = 0;
+    for (int face = 0; face < 6; ++face) {
+        for (int i = 0; i < 4; ++i) {
+            if (s.facelets[face * 16 + centerIdx[i]] != face) misplaced++;
+        }
+    }
+    return misplaced;
+}
+
+static int countPairedWingsYau(const State4x4& s) {
+    struct WingPairInfo { int w1_1, w1_2, w2_1, w2_2; };
+    static const WingPairInfo wingPairs[12] = {
+        {0*16 + 7,  3*16 + 1,  0*16 + 11, 3*16 + 2},
+        {0*16 + 13, 4*16 + 1,  0*16 + 14, 4*16 + 2},
+        {0*16 + 4,  2*16 + 1,  0*16 + 8,  2*16 + 2},
+        {0*16 + 1,  5*16 + 2,  0*16 + 2,  5*16 + 1},
+        {1*16 + 7,  3*16 + 14, 1*16 + 11, 3*16 + 13},
+        {1*16 + 1,  4*16 + 13, 1*16 + 2,  4*16 + 14},
+        {1*16 + 4,  2*16 + 13, 1*16 + 8,  2*16 + 14},
+        {1*16 + 13, 5*16 + 14, 1*16 + 14, 5*16 + 13},
+        {4*16 + 7,  3*16 + 4,  4*16 + 11, 3*16 + 8},
+        {4*16 + 4,  2*16 + 7,  4*16 + 8,  2*16 + 11},
+        {5*16 + 7,  2*16 + 4,  5*16 + 11, 2*16 + 8},
+        {5*16 + 4,  3*16 + 7,  5*16 + 8,  3*16 + 11}
+    };
+    int paired = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (s.facelets[wingPairs[i].w1_1] == s.facelets[wingPairs[i].w2_1] &&
+            s.facelets[wingPairs[i].w1_2] == s.facelets[wingPairs[i].w2_2]) {
+            paired++;
+        }
+    }
+    return paired;
+}
 
 SolveResult Solver4x4_Yau::solveState(const State4x4& state) {
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -43,15 +90,41 @@ SolveResult Solver4x4_Yau::solveState(const State4x4& state) {
     }
 
     State4x4 curr = state;
+    int numSetups = sizeof(YAU_SETUPS)/sizeof(YAU_SETUPS[0]);
+    int numComms = sizeof(YAU_CENTER_COMMS)/sizeof(YAU_CENTER_COMMS[0]);
+    int numWComms = sizeof(YAU_WING_COMMS)/sizeof(YAU_WING_COMMS[0]);
 
     // Phase 1: 2 Opposite Centers (White & Yellow / U & D)
     std::vector<Move> p1Moves;
-    for (int k = 0; k < 2; ++k) {
-        std::vector<Move> alg = parseMoves(YAU_OPPOSITE_CENTERS_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p1Moves.push_back(m);
+    for (int step = 0; step < 12; ++step) {
+        int bestMis = countMisplacedCentersYau(curr, 0, 1);
+        if (bestMis == 0) break;
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (YAU_SETUPS[i][0] != '\0') seq += std::string(YAU_SETUPS[i]) + " ";
+                seq += YAU_CENTER_COMMS[j];
+                if (YAU_INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(YAU_INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                int mis = countMisplacedCentersYau(test, 0, 1);
+                if (mis < bestMis) {
+                    bestMis = mis;
+                    bestSeq = seq;
+                    bestState = test;
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p1Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step1;
@@ -68,12 +141,36 @@ SolveResult Solver4x4_Yau::solveState(const State4x4& state) {
 
     // Phase 2: 3 Cross Dedgess
     std::vector<Move> p2Moves;
-    for (int k = 0; k < 3; ++k) {
-        std::vector<Move> alg = parseMoves(YAU_CROSS_EDGES_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p2Moves.push_back(m);
+    for (int step = 0; step < 3; ++step) {
+        int bestPaired = countPairedWingsYau(curr);
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int w = 0; w < numWComms; ++w) {
+                std::string seq = "";
+                if (YAU_SETUPS[i][0] != '\0') seq += std::string(YAU_SETUPS[i]) + " ";
+                seq += YAU_WING_COMMS[w];
+                if (YAU_INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(YAU_INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                if (countMisplacedCentersYau(test, 0, 1) == 0) {
+                    int p = countPairedWingsYau(test);
+                    if (p > bestPaired) {
+                        bestPaired = p;
+                        bestSeq = seq;
+                        bestState = test;
+                    }
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p2Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step2;
@@ -90,12 +187,35 @@ SolveResult Solver4x4_Yau::solveState(const State4x4& state) {
 
     // Phase 3: Last 4 Centers (L4C)
     std::vector<Move> p3Moves;
-    for (int k = 0; k < 4; ++k) {
-        std::vector<Move> alg = parseMoves(YAU_L4C_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p3Moves.push_back(m);
+    for (int step = 0; step < 16; ++step) {
+        int bestMis = countTotalMisplacedCenters(curr);
+        if (bestMis == 0) break;
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (YAU_SETUPS[i][0] != '\0') seq += std::string(YAU_SETUPS[i]) + " ";
+                seq += YAU_CENTER_COMMS[j];
+                if (YAU_INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(YAU_INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                int mis = countTotalMisplacedCenters(test);
+                if (mis < bestMis) {
+                    bestMis = mis;
+                    bestSeq = seq;
+                    bestState = test;
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p3Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step3;
@@ -112,12 +232,37 @@ SolveResult Solver4x4_Yau::solveState(const State4x4& state) {
 
     // Phase 4: Last Cross Edge + 3-2-3 Edge Pairing
     std::vector<Move> p4Moves;
-    for (int k = 0; k < 4; ++k) {
-        std::vector<Move> alg = parseMoves(YAU_323_PAIRING_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p4Moves.push_back(m);
+    for (int step = 0; step < 12; ++step) {
+        int bestPaired = countPairedWingsYau(curr);
+        if (bestPaired == 12) break;
+        std::string bestSeq = "";
+        State4x4 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int w = 0; w < numWComms; ++w) {
+                std::string seq = "";
+                if (YAU_SETUPS[i][0] != '\0') seq += std::string(YAU_SETUPS[i]) + " ";
+                seq += YAU_WING_COMMS[w];
+                if (YAU_INVERSE_SETUPS[i][0] != '\0') seq += " " + std::string(YAU_INVERSE_SETUPS[i]);
+
+                State4x4 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                if (curr.areCentersSolved()) {
+                    int p = countPairedWingsYau(test);
+                    if (p > bestPaired) {
+                        bestPaired = p;
+                        bestSeq = seq;
+                        bestState = test;
+                    }
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p4Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step4;

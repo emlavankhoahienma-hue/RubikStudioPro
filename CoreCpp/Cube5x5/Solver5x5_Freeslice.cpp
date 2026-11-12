@@ -1,26 +1,81 @@
 #include "Cube5x5/Solver5x5_Freeslice.hpp"
+#include "Cube3x3/Solver3x3_CFOP.hpp"
 #include <chrono>
+#include <vector>
+#include <string>
+#include <algorithm>
 
-static const char* FREESLICE_CENTER_ALGS[4] = {
-    "Rw U Rw' U Rw U2 Rw'",
-    "Lw' U' Lw U' Lw' U2 Lw",
-    "3Rw U 3Rw' U 3Rw U2 3Rw'",
-    "Rw' F' Rw U Rw U' Rw' F"
+static const char* FREESLICE_SETUPS[] = {
+    "", "U", "U'", "U2", "D", "D'", "D2", "L", "L'", "L2", "R", "R'", "R2", "F", "F'", "F2", "B", "B'", "B2"
 };
 
-static const char* FREESLICE_EDGE_ALGS[4] = {
+static const char* FREESLICE_INV_SETUPS[] = {
+    "", "U'", "U", "U2", "D'", "D", "D2", "L'", "L", "L2", "R'", "R", "R2", "F'", "F", "F2", "B'", "B", "B2"
+};
+
+static const char* FREESLICE_CENTER_COMMS[] = {
+    "Rw U Rw'", "Rw U' Rw'", "Rw U2 Rw'", "Rw' U Rw", "Rw' U' Rw", "Rw' U2 Rw",
+    "Lw U Lw'", "Lw U' Lw'", "Lw U2 Lw'", "Lw' U Lw", "Lw' U' Lw", "Lw' U2 Lw",
+    "Fw U Fw'", "Fw U' Fw'", "Fw U2 Fw'", "Fw' U Fw", "Fw' U' Fw", "Fw' U2 Fw",
+    "Bw U Bw'", "Bw U' Bw'", "Bw U2 Bw'", "Bw' U Bw", "Bw' U' Bw", "Bw' U2 Bw",
+    "3Rw U 3Rw'", "3Rw U' 3Rw'", "3Rw U2 3Rw'", "3Rw' U 3Rw", "3Rw' U' 3Rw", "3Rw' U2 3Rw"
+};
+
+static const char* FREESLICE_TREDGE_COMMS[] = {
     "Uw' R U R' F R' F' R Uw",
     "Dw R U R' F R' F' R Dw'",
     "3Uw' R U R' F R' F' R 3Uw",
     "3Dw R U R' F R' F' R 3Dw'"
 };
 
-static const char* FREESLICE_L4E_ALGS[2] = {
-    "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2",
-    "Uw' R U R' F R' F' R Uw"
-};
-
 static const char* EDGE_FLIP_PARITY_ALG = "Rw2 B2 U2 Lw U2 Rw' U2 Rw U2 F2 Rw F2 Lw' B2 Rw2";
+
+static int countMisplacedCenters5x5Freeslice(const State5x5& s) {
+    int misplaced = 0;
+    for (int face = 0; face < 6; ++face) {
+        uint8_t c = s.facelets[face * 25 + 12];
+        for (int r = 1; r <= 3; ++r) {
+            for (int col = 1; col <= 3; ++col) {
+                if (s.facelets[face * 25 + r * 5 + col] != c) misplaced++;
+            }
+        }
+    }
+    return misplaced;
+}
+
+static int countPairedTredgesFreeslice(const State5x5& s) {
+    struct TredgeInfo {
+        int midge_f1, midge_f2, w1_f1, w1_f2, w2_f1, w2_f2;
+    };
+    static const TredgeInfo tredges[12] = {
+        {0*25 + 2, 3*25 + 2,  0*25 + 1, 3*25 + 1,  0*25 + 3, 3*25 + 3},
+        {0*25 + 22, 4*25 + 2, 0*25 + 21, 4*25 + 1, 0*25 + 23, 4*25 + 3},
+        {0*25 + 10, 2*25 + 2, 0*25 + 5,  2*25 + 1, 0*25 + 15, 2*25 + 3},
+        {0*25 + 2,  5*25 + 2, 0*25 + 1,  5*25 + 3, 0*25 + 3,  5*25 + 1},
+        {1*25 + 14, 3*25 + 22, 1*25 + 9,  3*25 + 21, 1*25 + 19, 3*25 + 23},
+        {1*25 + 2,  4*25 + 22, 1*25 + 1,  4*25 + 23, 1*25 + 3,  4*25 + 21},
+        {1*25 + 10, 2*25 + 22, 1*25 + 5,  2*25 + 23, 1*25 + 15, 2*25 + 21},
+        {1*25 + 22, 5*25 + 22, 1*25 + 21, 5*25 + 23, 1*25 + 23, 5*25 + 21},
+        {4*25 + 14, 3*25 + 10, 4*25 + 9,  3*25 + 5,  4*25 + 19, 3*25 + 15},
+        {4*25 + 10, 2*25 + 14, 4*25 + 5,  2*25 + 9,  4*25 + 15, 2*25 + 19},
+        {5*25 + 14, 2*25 + 10, 5*25 + 9,  2*25 + 5,  5*25 + 19, 2*25 + 15},
+        {5*25 + 10, 3*25 + 14, 5*25 + 5,  3*25 + 9,  5*25 + 15, 3*25 + 19}
+    };
+
+    int paired = 0;
+    for (int e = 0; e < 12; ++e) {
+        uint8_t mf1 = s.facelets[tredges[e].midge_f1];
+        uint8_t mf2 = s.facelets[tredges[e].midge_f2];
+        uint8_t w1f1 = s.facelets[tredges[e].w1_f1];
+        uint8_t w1f2 = s.facelets[tredges[e].w1_f2];
+        uint8_t w2f1 = s.facelets[tredges[e].w2_f1];
+        uint8_t w2f2 = s.facelets[tredges[e].w2_f2];
+        if (w1f1 == mf1 && w1f2 == mf2 && w2f1 == mf1 && w2f2 == mf2) {
+            paired++;
+        }
+    }
+    return paired;
+}
 
 SolveResult Solver5x5_Freeslice::solveState(const State5x5& state) {
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -35,15 +90,41 @@ SolveResult Solver5x5_Freeslice::solveState(const State5x5& state) {
     }
 
     State5x5 curr = state;
+    int numSetups = sizeof(FREESLICE_SETUPS)/sizeof(FREESLICE_SETUPS[0]);
+    int numComms = sizeof(FREESLICE_CENTER_COMMS)/sizeof(FREESLICE_CENTER_COMMS[0]);
+    int numTComms = sizeof(FREESLICE_TREDGE_COMMS)/sizeof(FREESLICE_TREDGE_COMMS[0]);
 
     // Phase 1: Center Bars
     std::vector<Move> p1Moves;
-    for (int k = 0; k < 4; ++k) {
-        std::vector<Move> alg = parseMoves(FREESLICE_CENTER_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p1Moves.push_back(m);
+    for (int step = 0; step < 48; ++step) {
+        int bestMis = countMisplacedCenters5x5Freeslice(curr);
+        if (bestMis == 0) break;
+        std::string bestSeq = "";
+        State5x5 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int j = 0; j < numComms; ++j) {
+                std::string seq = "";
+                if (FREESLICE_SETUPS[i][0] != '\0') seq += std::string(FREESLICE_SETUPS[i]) + " ";
+                seq += FREESLICE_CENTER_COMMS[j];
+                if (FREESLICE_INV_SETUPS[i][0] != '\0') seq += " " + std::string(FREESLICE_INV_SETUPS[i]);
+
+                State5x5 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                int mis = countMisplacedCenters5x5Freeslice(test);
+                if (mis < bestMis) {
+                    bestMis = mis;
+                    bestSeq = seq;
+                    bestState = test;
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p1Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step1;
@@ -60,12 +141,37 @@ SolveResult Solver5x5_Freeslice::solveState(const State5x5& state) {
 
     // Phase 2: Freeslice 8 Edges
     std::vector<Move> p2Moves;
-    for (int k = 0; k < 4; ++k) {
-        std::vector<Move> alg = parseMoves(FREESLICE_EDGE_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p2Moves.push_back(m);
+    for (int step = 0; step < 8; ++step) {
+        int bestPaired = countPairedTredgesFreeslice(curr);
+        if (bestPaired >= 8) break;
+        std::string bestSeq = "";
+        State5x5 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int t = 0; t < numTComms; ++t) {
+                std::string seq = "";
+                if (FREESLICE_SETUPS[i][0] != '\0') seq += std::string(FREESLICE_SETUPS[i]) + " ";
+                seq += FREESLICE_TREDGE_COMMS[t];
+                if (FREESLICE_INV_SETUPS[i][0] != '\0') seq += " " + std::string(FREESLICE_INV_SETUPS[i]);
+
+                State5x5 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                if (test.areCentersSolved()) {
+                    int p = countPairedTredgesFreeslice(test);
+                    if (p > bestPaired) {
+                        bestPaired = p;
+                        bestSeq = seq;
+                        bestState = test;
+                    }
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p2Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step2;
@@ -82,12 +188,37 @@ SolveResult Solver5x5_Freeslice::solveState(const State5x5& state) {
 
     // Phase 3: Last 4 Edges (L4E)
     std::vector<Move> p3Moves;
-    for (int k = 0; k < 2; ++k) {
-        std::vector<Move> alg = parseMoves(FREESLICE_L4E_ALGS[k]);
-        for (const auto& m : alg) {
-            curr.applyMove(m);
-            p3Moves.push_back(m);
+    for (int step = 0; step < 8; ++step) {
+        int bestPaired = countPairedTredgesFreeslice(curr);
+        if (bestPaired == 12) break;
+        std::string bestSeq = "";
+        State5x5 bestState = curr;
+
+        for (int i = 0; i < numSetups; ++i) {
+            for (int t = 0; t < numTComms; ++t) {
+                std::string seq = "";
+                if (FREESLICE_SETUPS[i][0] != '\0') seq += std::string(FREESLICE_SETUPS[i]) + " ";
+                seq += FREESLICE_TREDGE_COMMS[t];
+                if (FREESLICE_INV_SETUPS[i][0] != '\0') seq += " " + std::string(FREESLICE_INV_SETUPS[i]);
+
+                State5x5 test = curr;
+                std::vector<Move> mvs = parseMoves(seq);
+                for (auto& m : mvs) test.applyMove(m);
+
+                if (test.areCentersSolved()) {
+                    int p = countPairedTredgesFreeslice(test);
+                    if (p > bestPaired) {
+                        bestPaired = p;
+                        bestSeq = seq;
+                        bestState = test;
+                    }
+                }
+            }
         }
+        if (bestSeq.empty()) break;
+        std::vector<Move> mvs = parseMoves(bestSeq);
+        for (const auto& m : mvs) p3Moves.push_back(m);
+        curr = bestState;
     }
 
     PhaseStep step3;

@@ -1,0 +1,7 @@
+.DS_Store
+*.ipa
+build_output/
+artifact_output/
+*.o
+*.exe
+RubikStudioPro.xcodeproj
