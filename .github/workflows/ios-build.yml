@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-and-package:
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - name: 1. Checkout Source Code
         uses: actions/checkout@v4
