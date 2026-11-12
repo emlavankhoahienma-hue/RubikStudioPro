@@ -9,13 +9,19 @@ on:
 
 jobs:
   build-and-package:
-    runs-on: macos-14
+    runs-on: macos-13
     steps:
       - name: 1. Checkout Source Code
         uses: actions/checkout@v4
 
       - name: 2. Select Stable Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+        run: |
+          if [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_15.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+          fi
+          xcodebuild -version
 
       - name: 3. Pre-Verify C++20 Solvers (Fast Fail Check)
         run: |
