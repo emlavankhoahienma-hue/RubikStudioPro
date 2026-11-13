@@ -653,6 +653,33 @@ SolveResult Solver5x5_Optimal::solve(const uint8_t colors[150]) {
     return solveState(state);
 }
 
+static bool tryShallowSolve5x5(const State5x5& state, int maxDepth, std::vector<Move>& outMoves) {
+    static const uint8_t masks[2] = {0x01, 0x03};
+    std::function<bool(const State5x5&, int, int, int)> dfs = [&](const State5x5& s, int d, int lastAx, int lastMask) -> bool {
+        if (s.isSolved()) return true;
+        if (d == 0) return false;
+        for (uint8_t ax = 0; ax < 6; ++ax) {
+            for (uint8_t sl : masks) {
+                if (ax == lastAx && sl == lastMask) continue;
+                for (uint8_t pw = 1; pw <= 3; ++pw) {
+                    State5x5 ns = s;
+                    Move m = makeMove(ax, pw, sl);
+                    ns.applyMove(m);
+                    outMoves.push_back(m);
+                    if (dfs(ns, d - 1, ax, sl)) return true;
+                    outMoves.pop_back();
+                }
+            }
+        }
+        return false;
+    };
+    for (int d = 1; d <= maxDepth; ++d) {
+        outMoves.clear();
+        if (dfs(state, d, -1, -1)) return true;
+    }
+    return false;
+}
+
 SolveResult Solver5x5_Optimal::solveState(const State5x5& state) {
     auto t0 = std::chrono::high_resolution_clock::now();
     SolveResult result;
@@ -661,6 +688,23 @@ SolveResult Solver5x5_Optimal::solveState(const State5x5& state) {
 
     if (state.isSolved()) {
         result.solveTimeMs = 0.0;
+        return result;
+    }
+
+    // Fast shallow optimal check (depth <= 3)
+    std::vector<Move> shallowMoves;
+    if (tryShallowSolve5x5(state, 3, shallowMoves)) {
+        PhaseStep ps;
+        ps.phaseName = "5x5 Direct Optimal";
+        ps.moves = shallowMoves;
+        for (size_t i = 0; i < shallowMoves.size(); ++i) {
+            if (i > 0) ps.notationString += " ";
+            ps.notationString += moveToString(shallowMoves[i], 5);
+        }
+        result.phases.push_back(ps);
+        result.totalMoves = (int)shallowMoves.size();
+        auto t1 = std::chrono::high_resolution_clock::now();
+        result.solveTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
         return result;
     }
 
