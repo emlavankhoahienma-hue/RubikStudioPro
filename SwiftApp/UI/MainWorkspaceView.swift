@@ -419,6 +419,11 @@ public struct MainWorkspaceView: View {
                 scannerOverlayControls
             }
         }
+        .onChange(of: scanner.isScanningComplete) { _, complete in
+            if complete {
+                finishCameraScanAndSolve()
+            }
+        }
     }
 
     private var scannerOverlayControls: some View {
