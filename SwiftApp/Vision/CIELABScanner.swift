@@ -217,8 +217,11 @@ private final class ScannerSyncState: @unchecked Sendable {
 
 @MainActor
 public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    // Natural beginner-friendly scan order: Front(Green) -> Right(Red) -> Back(Blue) -> Left(Orange) -> Up(White) -> Down(Yellow)
+    public static let naturalScanOrder: [Int] = [4, 3, 5, 2, 0, 1]
+
     @Published public var cubeSize: Int = 3
-    @Published public var currentFaceIndex: Int = 0 // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
+    @Published public var currentFaceIndex: Int = 4 // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
     @Published public var faceStatus: [Bool] = Array(repeating: false, count: 6)
     @Published public var liveSampledColors: [LabColor] = []
     @Published public var liveClassifiedColors: [Int] = []
@@ -417,7 +420,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     public func resetAllFaces() {
-        currentFaceIndex = 0
+        currentFaceIndex = Self.naturalScanOrder[0]
         faceStatus = Array(repeating: false, count: 6)
         let total = cubeSize * cubeSize
         // Default faces: U=0(White), D=1(Yellow), L=2(Orange), R=3(Red), F=4(Green), B=5(Blue)
@@ -444,7 +447,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
             self.faceStatus = Array(repeating: true, count: 6)
         } else {
             self.faceStatus = Array(repeating: false, count: 6)
-            self.currentFaceIndex = 0
+            self.currentFaceIndex = Self.naturalScanOrder[0]
             self.isScanningComplete = false
         }
     }
@@ -520,7 +523,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         faceStatus[currentFaceIndex] = true
         hapticFeedback?.impactOccurred()
 
-        if let nextIncomplete = (0..<6).first(where: { !faceStatus[$0] }) {
+        if let nextIncomplete = Self.naturalScanOrder.first(where: { !faceStatus[$0] }) {
             currentFaceIndex = nextIncomplete
         } else {
             isScanningComplete = true

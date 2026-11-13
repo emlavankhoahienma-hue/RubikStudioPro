@@ -7,12 +7,12 @@ public struct CubeNetEditorView: View {
     var onSolveTriggered: () -> Void
 
     let colorPalette: [(id: Int, shortTag: String, name: String, color: Color)] = [
-        (0, "U", "Trắng", Color.white),
-        (1, "D", "Vàng", Color(red: 1.0, green: 0.85, blue: 0.0)),
-        (2, "L", "Cam", Color(red: 1.0, green: 0.45, blue: 0.0)),
-        (3, "R", "Đỏ", Color(red: 0.9, green: 0.15, blue: 0.15)),
-        (4, "F", "Lục", Color(red: 0.1, green: 0.75, blue: 0.25)),
-        (5, "B", "Lam", Color(red: 0.15, green: 0.45, blue: 0.95))
+        (0, "TR", "Trắng", Color.white),
+        (1, "VÀ", "Vàng", Color(red: 1.0, green: 0.85, blue: 0.0)),
+        (2, "CA", "Cam", Color(red: 1.0, green: 0.45, blue: 0.0)),
+        (3, "ĐỎ", "Đỏ", Color(red: 0.9, green: 0.15, blue: 0.15)),
+        (4, "LÁ", "X.Lá", Color(red: 0.1, green: 0.75, blue: 0.25)),
+        (5, "DU", "X.Dương", Color(red: 0.15, green: 0.45, blue: 0.95))
     ]
 
     public init(scanner: CIELABScanner,
@@ -85,20 +85,20 @@ public struct CubeNetEditorView: View {
                 VStack(spacing: 6) {
                     HStack {
                         Spacer()
-                        faceGridView(face: 0, title: "U (TRÊN)")
+                        faceGridView(face: 0, title: "TRÊN (TRẮNG)")
                         Spacer()
                     }
 
                     HStack(spacing: 6) {
-                        faceGridView(face: 2, title: "L (TRÁI)")
-                        faceGridView(face: 4, title: "F (TRƯỚC)")
-                        faceGridView(face: 3, title: "R (PHẢI)")
-                        faceGridView(face: 5, title: "B (SAU)")
+                        faceGridView(face: 2, title: "TRÁI (CAM)")
+                        faceGridView(face: 4, title: "TRƯỚC (X.LÁ)")
+                        faceGridView(face: 3, title: "PHẢI (ĐỎ)")
+                        faceGridView(face: 5, title: "SAU (X.DƯƠNG)")
                     }
 
                     HStack {
                         Spacer()
-                        faceGridView(face: 1, title: "D (DƯỚI)")
+                        faceGridView(face: 1, title: "DƯỚI (VÀNG)")
                         Spacer()
                     }
                 }
