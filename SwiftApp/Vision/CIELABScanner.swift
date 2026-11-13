@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreMotion
 import UIKit
 import Combine
@@ -184,6 +184,37 @@ public struct CameraVideoPreview: UIViewRepresentable {
     }
 }
 
+private final class ScannerSyncState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _isConfigured: Bool = false
+    private var _samplingCubeSize: Int = 3
+    private var _lastSampleTimestamp: CFTimeInterval = 0
+    private var _videoOutput: AVCaptureVideoDataOutput?
+
+    var isConfigured: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _isConfigured
+    }
+
+    func setConfigured(output: AVCaptureVideoDataOutput) {
+        lock.lock(); defer { lock.unlock() }
+        _videoOutput = output
+        _isConfigured = true
+    }
+
+    func setCubeSize(_ size: Int) {
+        lock.lock(); defer { lock.unlock() }
+        _samplingCubeSize = size
+    }
+
+    func tryBeginSample(now: CFTimeInterval, minInterval: CFTimeInterval = 0.08) -> Int? {
+        lock.lock(); defer { lock.unlock() }
+        guard (now - _lastSampleTimestamp) >= minInterval else { return nil }
+        _lastSampleTimestamp = now
+        return _samplingCubeSize
+    }
+}
+
 @MainActor
 public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     @Published public var cubeSize: Int = 3
@@ -205,11 +236,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     private let sampleQueue = DispatchQueue(label: "com.rubikstudio.sampleBufferQueue", qos: .userInteractive)
 
     // Thread-safe state accessed from background camera/sample queues
-    private let stateLock = NSLock()
-    private var _isConfigured: Bool = false
-    private var _samplingCubeSize: Int = 3
-    private var _lastSampleTimestamp: CFTimeInterval = 0
-    private var _videoOutput: AVCaptureVideoDataOutput?
+    private let syncState = ScannerSyncState()
 
     private var motionManager: CMMotionManager?
     private var hapticFeedback: UIImpactFeedbackGenerator?
@@ -218,7 +245,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     private var isStableFor035s: Bool = false
     private var lastAngularVelocity: Double = 0.0
 
-    private static let standardCentroids: [LabColor] = [
+    nonisolated private static let standardCentroids: [LabColor] = [
         LabColor(L: 92.0, a: 0.0, b: 0.0),    // 0: White (U)
         LabColor(L: 85.0, a: -4.0, b: 80.0),  // 1: Yellow (D)
         LabColor(L: 64.0, a: 46.0, b: 62.0),  // 2: Orange (L)
@@ -284,12 +311,11 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
 
     public func setupCaptureSession() {
         let session = captureSession
+        let state = syncState
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
 
-            self.stateLock.lock()
-            let alreadyConfigured = self._isConfigured
-            self.stateLock.unlock()
+            let alreadyConfigured = state.isConfigured
 
             if !alreadyConfigured {
                 session.beginConfiguration()
@@ -340,10 +366,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
 
                 session.commitConfiguration()
 
-                self.stateLock.lock()
-                self._videoOutput = output
-                self._isConfigured = true
-                self.stateLock.unlock()
+                state.setConfigured(output: output)
             }
 
             if !session.isRunning {
@@ -388,9 +411,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     public func setCubeSize(_ size: Int) {
         let clamped = max(2, min(5, size))
         self.cubeSize = clamped
-        stateLock.lock()
-        _samplingCubeSize = clamped
-        stateLock.unlock()
+        syncState.setCubeSize(clamped)
         resetAllFaces()
     }
 
@@ -410,9 +431,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         let nn = clamped * clamped
         guard flat.count == 6 * nn else { return }
         self.cubeSize = clamped
-        stateLock.lock()
-        _samplingCubeSize = clamped
-        stateLock.unlock()
+        syncState.setCubeSize(clamped)
 
         var faces: [[Int]] = []
         for f in 0..<6 {
@@ -534,15 +553,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
                                           didOutput sampleBuffer: CMSampleBuffer,
                                           from connection: AVCaptureConnection) {
         let now = CACurrentMediaTime()
-        stateLock.lock()
-        let shouldSample = (now - _lastSampleTimestamp) >= 0.08
-        if shouldSample {
-            _lastSampleTimestamp = now
-        }
-        let n = _samplingCubeSize
-        stateLock.unlock()
-
-        guard shouldSample,
+        guard let n = syncState.tryBeginSample(now: now),
               n >= 2 && n <= 5,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 

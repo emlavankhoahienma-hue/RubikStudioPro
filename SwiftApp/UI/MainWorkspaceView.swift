@@ -269,7 +269,7 @@ public struct MainWorkspaceView: View {
                         let currentFacelets = ParametricRubikScene.stateAfterMoves(
                             initialFacelets: initialFacelets,
                             size: selectedCubeSize,
-                            moves: flatMoves,
+                            moves: flatMoves.map { $0.move },
                             count: currentStepIndex
                         )
                         initialFacelets = currentFacelets
@@ -807,7 +807,7 @@ public struct MainWorkspaceView: View {
         let state = ParametricRubikScene.stateAfterMoves(
             initialFacelets: initialFacelets,
             size: selectedCubeSize,
-            moves: flatMoves,
+            moves: flatMoves.map { $0.move },
             count: nextStep
         )
         sceneModel.rebuildCube(size: selectedCubeSize, facelets: state)
