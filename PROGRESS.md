@@ -21,3 +21,6 @@
 
 ## Stage 2: CI & IPA Build
 - Configuring `.github/workflows/build-ipa.yml` with `needs: verify` calling `.github/workflows/verify.yml` on branch `overnight-build`.
+- CI Run `43375481205` PASSED (`verify / verify-core` in 22s, `build-ipa` in 1m16s).
+- Downloaded and verified `artifacts_ci/RubikStudioPro-Unsigned.ipa` (`Mach-O 64-bit executable arm64`, `com.rubikstudio.pro`).
+- Wrote `BUILD_REPORT.md` and created `DONE.flag`.

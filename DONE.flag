@@ -1,1 +1,4 @@
-REASON: Dừng vòng lặp Giai đoạn 1 do chưa đạt ngưỡng 100% correctness cho khối 4x4 và 5x5 theo đúng điều kiện nghiêm ngặt trong verify/thresholds.json. Khối 2x2 và 3x3 đạt 100% tuyệt đối. Theo chỉ thị: DỪNG, KHÔNG build IPA mới, báo cáo chi tiết trong PROGRESS.md và BLOCKED.md.
+STAGE1=PASS
+STAGE2=PASS
+CI_RUN=43375481205
+IPA=RubikStudioPro-Unsigned.ipa
