@@ -48,17 +48,17 @@ void State2x2::applyMove(uint8_t axis, uint8_t power) {
             perm[2] = perm[1]; orient[2] = orient[1];
             perm[1] = tp;      orient[1] = to;
         } else if (axis == 3) { // R move
-            // Corners: 0(URF), 4(DFR), 6(DRB), 3(UBR)
-            // Clockwise: 0 <- 3, 4 <- 0, 6 <- 4, 3 <- 6
+            // Corners: 0(URF), 3(UBR), 6(DRB), 4(DFR)
+            // Clockwise looking at R (+X): 3 <- 0, 6 <- 3, 4 <- 6, 0 <- 4
             uint8_t p0 = perm[0], o0 = orient[0];
             uint8_t p3 = perm[3], o3 = orient[3];
             uint8_t p4 = perm[4], o4 = orient[4];
             uint8_t p6 = perm[6], o6 = orient[6];
 
-            perm[0] = p3; orient[0] = static_cast<uint8_t>((o3 + 2) % 3);
-            perm[4] = p0; orient[4] = static_cast<uint8_t>((o0 + 1) % 3);
-            perm[6] = p4; orient[6] = static_cast<uint8_t>((o4 + 2) % 3);
-            perm[3] = p6; orient[3] = static_cast<uint8_t>((o6 + 1) % 3);
+            perm[3] = p0; orient[3] = static_cast<uint8_t>((o0 + 1) % 3);
+            perm[6] = p3; orient[6] = static_cast<uint8_t>((o3 + 2) % 3);
+            perm[4] = p6; orient[4] = static_cast<uint8_t>((o6 + 1) % 3);
+            perm[0] = p4; orient[0] = static_cast<uint8_t>((o4 + 2) % 3);
         } else if (axis == 4) { // F move
             // Corners: 1(UFL), 0(URF), 4(DFR), 5(DLF)
             // Clockwise: 0 <- 1, 4 <- 0, 5 <- 4, 1 <- 5

@@ -4,6 +4,7 @@ import CoreMotion
 import UIKit
 import Combine
 import CoreVideo
+import QuartzCore
 import SwiftUI
 
 public struct LabColor: Equatable, Sendable {
@@ -17,7 +18,7 @@ public struct LabColor: Equatable, Sendable {
         self.b = b
     }
 
-    // Standard Delta E 2000 (CIE dE2000) color difference formula
+    // Standard Delta E 2000 (CIE dE2000) color difference formula (Sharma et al. 2005)
     public func deltaE2000(to other: LabColor) -> Double {
         let kL = 1.0, kC = 1.0, kH = 1.0
         let avgL = (self.L + other.L) / 2.0
@@ -25,7 +26,9 @@ public struct LabColor: Equatable, Sendable {
         let c2 = sqrt(other.a * other.a + other.b * other.b)
         let avgC = (c1 + c2) / 2.0
 
-        let g = 0.5 * (1.0 - sqrt(pow(avgC, 7.0) / (pow(avgC, 7.0) + pow(25.0, 7.0))))
+        let avgC7 = pow(avgC, 7.0)
+        let p25_7 = pow(25.0, 7.0)
+        let g = 0.5 * (1.0 - sqrt(avgC7 / (avgC7 + p25_7)))
         let a1p = (1.0 + g) * self.a
         let a2p = (1.0 + g) * other.a
 
@@ -33,27 +36,32 @@ public struct LabColor: Equatable, Sendable {
         let c2p = sqrt(a2p * a2p + other.b * other.b)
         let avgCp = (c1p + c2p) / 2.0
 
-        let h1p = atan2(self.b, a1p) >= 0 ? atan2(self.b, a1p) * 180.0 / .pi : (atan2(self.b, a1p) * 180.0 / .pi) + 360.0
-        let h2p = atan2(other.b, a2p) >= 0 ? atan2(other.b, a2p) * 180.0 / .pi : (atan2(other.b, a2p) * 180.0 / .pi) + 360.0
+        func hueAngle(_ bVal: Double, _ aVal: Double) -> Double {
+            if bVal == 0.0 && aVal == 0.0 { return 0.0 }
+            let deg = atan2(bVal, aVal) * 180.0 / .pi
+            return deg >= 0.0 ? deg : (deg + 360.0)
+        }
 
-        var dkp = h2p - h1p
-        if abs(h1p - h2p) > 180.0 {
-            if h2p <= h1p {
-                dkp += 360.0
+        let h1p = hueAngle(self.b, a1p)
+        let h2p = hueAngle(other.b, a2p)
+
+        let cProd = c1p * c2p
+        var dkp = 0.0
+        var avgHp = h1p + h2p
+        if cProd > 0.0 {
+            let diff = h2p - h1p
+            if abs(diff) <= 180.0 {
+                dkp = diff
+                avgHp = (h1p + h2p) / 2.0
+            } else if diff > 180.0 {
+                dkp = diff - 360.0
+                avgHp = (h1p + h2p) < 360.0 ? ((h1p + h2p + 360.0) / 2.0) : ((h1p + h2p - 360.0) / 2.0)
             } else {
-                dkp -= 360.0
+                dkp = diff + 360.0
+                avgHp = (h1p + h2p) < 360.0 ? ((h1p + h2p + 360.0) / 2.0) : ((h1p + h2p - 360.0) / 2.0)
             }
         }
-        let dHp = 2.0 * sqrt(c1p * c2p) * sin(dkp * .pi / 360.0)
-
-        var avgHp = (h1p + h2p) / 2.0
-        if abs(h1p - h2p) > 180.0 {
-            if (h1p + h2p) < 360.0 {
-                avgHp += 180.0
-            } else {
-                avgHp -= 180.0
-            }
-        }
+        let dHp = 2.0 * sqrt(cProd) * sin(dkp * .pi / 360.0)
 
         let t = 1.0 - 0.17 * cos((avgHp - 30.0) * .pi / 180.0)
                     + 0.24 * cos((2.0 * avgHp) * .pi / 180.0)
@@ -63,36 +71,36 @@ public struct LabColor: Equatable, Sendable {
         let dLp = other.L - self.L
         let dCp = c2p - c1p
 
-        let sL = 1.0 + ((0.015 * pow(avgL - 50.0, 2.0)) / sqrt(20.0 + pow(avgL - 50.0, 2.0)))
+        let avgL50Sq = pow(avgL - 50.0, 2.0)
+        let sL = 1.0 + ((0.015 * avgL50Sq) / sqrt(20.0 + avgL50Sq))
         let sC = 1.0 + 0.045 * avgCp
         let sH = 1.0 + 0.015 * avgCp * t
 
         let dTheta = 30.0 * exp(-pow((avgHp - 275.0) / 25.0, 2.0))
-        let rC = 2.0 * sqrt(pow(avgCp, 7.0) / (pow(avgCp, 7.0) + pow(25.0, 7.0)))
+        let avgCp7 = pow(avgCp, 7.0)
+        let rC = 2.0 * sqrt(avgCp7 / (avgCp7 + p25_7))
         let rT = -sin(2.0 * dTheta * .pi / 180.0) * rC
 
         let vL = dLp / (kL * sL)
         let vC = dCp / (kC * sC)
         let vH = dHp / (kH * sH)
 
-        return sqrt(vL * vL + vC * vC + vH * vH + rT * vC * vH)
+        return sqrt(max(0.0, vL * vL + vC * vC + vH * vH + rT * vC * vH))
     }
 
     public static func fromRGB(r: Double, g: Double, b: Double) -> LabColor {
-        // Linearize sRGB
         func pivotRgb(_ n: Double) -> Double {
-            return (n > 0.04045) ? pow((n + 0.055) / 1.055, 2.4) : (n / 12.92)
+            let clamped = max(0.0, min(1.0, n))
+            return (clamped > 0.04045) ? pow((clamped + 0.055) / 1.055, 2.4) : (clamped / 12.92)
         }
         let lr = pivotRgb(r / 255.0) * 100.0
         let lg = pivotRgb(g / 255.0) * 100.0
         let lb = pivotRgb(b / 255.0) * 100.0
 
-        // Convert to XYZ (D65 standard)
         let x = lr * 0.4124 + lg * 0.3576 + lb * 0.1805
         let y = lr * 0.2126 + lg * 0.7152 + lb * 0.0722
         let z = lr * 0.0193 + lg * 0.1192 + lb * 0.9505
 
-        // Normalize for D65 reference white
         let xn = 95.047, yn = 100.000, zn = 108.883
         func pivotXyz(_ n: Double) -> Double {
             return (n > 0.008856) ? cbrt(n) : (7.787 * n + 16.0 / 116.0)
@@ -120,9 +128,9 @@ public struct LabColor: Equatable, Sendable {
         y = unpivot(y) * 1.00000
         z = unpivot(z) * 1.08883
 
-        var r = x * 3.2406 + y * -1.5372 + z * -0.4986
-        var g = x * -0.9689 + y * 1.8758 + z * 0.0415
-        var bLinear = x * 0.0557 + y * -0.2040 + z * 1.0570
+        let r = x * 3.2406 + y * -1.5372 + z * -0.4986
+        let g = x * -0.9689 + y * 1.8758 + z * 0.0415
+        let bLinear = x * 0.0557 + y * -0.2040 + z * 1.0570
 
         func sRgbCompand(_ c: Double) -> Double {
             let clamped = max(0.0, min(1.0, c))
@@ -144,10 +152,20 @@ public struct CameraVideoPreview: UIViewRepresentable {
         let view = CameraPreviewUIView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        if let conn = view.previewLayer.connection, conn.isVideoOrientationSupported {
+            conn.videoOrientation = .portrait
+        }
         return view
     }
 
-    public func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {}
+    public func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
+        if uiView.previewLayer.session !== session {
+            uiView.previewLayer.session = session
+        }
+        if let conn = uiView.previewLayer.connection, conn.isVideoOrientationSupported {
+            conn.videoOrientation = .portrait
+        }
+    }
 
     public class CameraPreviewUIView: UIView {
         public override class var layerClass: AnyClass {
@@ -155,6 +173,13 @@ public struct CameraVideoPreview: UIViewRepresentable {
         }
         public var previewLayer: AVCaptureVideoPreviewLayer {
             layer as! AVCaptureVideoPreviewLayer
+        }
+        public override func layoutSubviews() {
+            super.layoutSubviews()
+            previewLayer.frame = bounds
+            if let conn = previewLayer.connection, conn.isVideoOrientationSupported {
+                conn.videoOrientation = .portrait
+            }
         }
     }
 }
@@ -165,25 +190,42 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     @Published public var currentFaceIndex: Int = 0 // 0:U, 1:D, 2:L, 3:R, 4:F, 5:B
     @Published public var faceStatus: [Bool] = Array(repeating: false, count: 6)
     @Published public var liveSampledColors: [LabColor] = []
+    @Published public var liveClassifiedColors: [Int] = []
     @Published public var savedFacelets: [[Int]] = Array(repeating: [], count: 6)
     @Published public var isScanningComplete: Bool = false
     @Published public var isCameraAuthorized: Bool = false
     @Published public var isTorchOn: Bool = false
     @Published public var isSessionRunning: Bool = false
+    @Published public var isAutoCaptureEnabled: Bool = false
+    @Published public var cameraError: String? = nil
 
-    public var captureSession: AVCaptureSession?
-    private var videoOutput: AVCaptureVideoDataOutput?
+    public let captureSession = AVCaptureSession()
+
     private let sessionQueue = DispatchQueue(label: "com.rubikstudio.cameraSessionQueue")
     private let sampleQueue = DispatchQueue(label: "com.rubikstudio.sampleBufferQueue", qos: .userInteractive)
+
+    // Thread-safe state accessed from background camera/sample queues
+    private let stateLock = NSLock()
+    private var _isConfigured: Bool = false
+    private var _samplingCubeSize: Int = 3
+    private var _lastSampleTimestamp: CFTimeInterval = 0
+    private var _videoOutput: AVCaptureVideoDataOutput?
 
     private var motionManager: CMMotionManager?
     private var hapticFeedback: UIImpactFeedbackGenerator?
 
-    // Motion tracking for auto-capture
     private var lastMotionTimestamp: TimeInterval = 0
     private var isStableFor035s: Bool = false
     private var lastAngularVelocity: Double = 0.0
-    private var isConfigured: Bool = false
+
+    private static let standardCentroids: [LabColor] = [
+        LabColor(L: 92.0, a: 0.0, b: 0.0),    // 0: White (U)
+        LabColor(L: 85.0, a: -4.0, b: 80.0),  // 1: Yellow (D)
+        LabColor(L: 64.0, a: 46.0, b: 62.0),  // 2: Orange (L)
+        LabColor(L: 48.0, a: 66.0, b: 42.0),  // 3: Red (R)
+        LabColor(L: 55.0, a: -50.0, b: 36.0), // 4: Green (F)
+        LabColor(L: 38.0, a: 12.0, b: -48.0)  // 5: Blue (B)
+    ]
 
     public override init() {
         super.init()
@@ -195,59 +237,92 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
             hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
             hapticFeedback?.prepare()
         }
+        cameraError = nil
         checkCameraAuthorization()
         startMotionTracking()
     }
 
     public func stopCamera() {
         stopMotionTracking()
+        setTorch(enabled: false)
+        let session = captureSession
         sessionQueue.async { [weak self] in
-            guard let self = self, let session = self.captureSession, session.isRunning else { return }
-            session.stopRunning()
-            Task { @MainActor in
-                self.isSessionRunning = false
+            if session.isRunning {
+                session.stopRunning()
+            }
+            Task { @MainActor [weak self] in
+                self?.isSessionRunning = false
             }
         }
     }
 
     public func checkCameraAuthorization() {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
         case .authorized:
             self.isCameraAuthorized = true
             setupCaptureSession()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                Task { @MainActor in
-                    self?.isCameraAuthorized = granted
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    self.isCameraAuthorized = granted
                     if granted {
-                        self?.setupCaptureSession()
+                        self.setupCaptureSession()
+                    } else {
+                        self.cameraError = "Bạn đã từ chối quyền Camera. Vào Cài đặt để bật lại hoặc dùng Bản Đồ Màu."
                     }
                 }
             }
-        default:
+        case .denied, .restricted:
+            self.isCameraAuthorized = false
+            self.cameraError = "Quyền Camera chưa được cấp. Hãy mở Cài đặt iPhone hoặc dùng Bản Đồ Màu."
+        @unknown default:
             self.isCameraAuthorized = false
         }
     }
 
     public func setupCaptureSession() {
+        let session = captureSession
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
-            if self.captureSession == nil {
-                self.captureSession = AVCaptureSession()
-            }
-            guard let session = self.captureSession else { return }
 
-            if !self.isConfigured {
+            self.stateLock.lock()
+            let alreadyConfigured = self._isConfigured
+            self.stateLock.unlock()
+
+            if !alreadyConfigured {
                 session.beginConfiguration()
                 session.sessionPreset = .high
 
-                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                      let input = try? AVCaptureDeviceInput(device: device),
-                      session.canAddInput(input) else {
+                guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                        ?? AVCaptureDevice.default(for: .video) else {
                     session.commitConfiguration()
+                    Task { @MainActor [weak self] in
+                        self?.cameraError = "Thiết bị không có camera khả dụng (hoặc đang chạy trên Simulator)."
+                    }
                     return
                 }
-                session.addInput(input)
+
+                do {
+                    let input = try AVCaptureDeviceInput(device: device)
+                    if session.canAddInput(input) {
+                        session.addInput(input)
+                    } else {
+                        session.commitConfiguration()
+                        Task { @MainActor [weak self] in
+                            self?.cameraError = "Không thể kết nối đầu vào Camera."
+                        }
+                        return
+                    }
+                } catch {
+                    session.commitConfiguration()
+                    let msg = error.localizedDescription
+                    Task { @MainActor [weak self] in
+                        self?.cameraError = "Lỗi khởi tạo Camera: \(msg)"
+                    }
+                    return
+                }
 
                 let output = AVCaptureVideoDataOutput()
                 output.alwaysDiscardsLateVideoFrames = true
@@ -262,41 +337,60 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
                         connection.videoOrientation = .portrait
                     }
                 }
-                self.videoOutput = output
+
                 session.commitConfiguration()
-                self.isConfigured = true
+
+                self.stateLock.lock()
+                self._videoOutput = output
+                self._isConfigured = true
+                self.stateLock.unlock()
             }
 
             if !session.isRunning {
                 session.startRunning()
             }
 
-            Task { @MainActor in
-                self.isSessionRunning = session.isRunning
+            let running = session.isRunning
+            Task { @MainActor [weak self] in
+                self?.isSessionRunning = running
+                if running {
+                    self?.cameraError = nil
+                }
             }
         }
     }
 
     public func toggleTorch() {
+        setTorch(enabled: !isTorchOn)
+    }
+
+    private func setTorch(enabled: Bool) {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              device.hasTorch else { return }
+              device.hasTorch, device.isTorchAvailable else {
+            isTorchOn = false
+            return
+        }
         do {
             try device.lockForConfiguration()
-            if device.torchMode == .on {
+            defer { device.unlockForConfiguration() }
+            if enabled && device.isTorchModeSupported(.on) {
+                try device.setTorchModeOn(level: 0.85)
+                isTorchOn = true
+            } else if device.isTorchModeSupported(.off) {
                 device.torchMode = .off
-                self.isTorchOn = false
-            } else {
-                try device.setTorchModeOn(level: 1.0)
-                self.isTorchOn = true
+                isTorchOn = false
             }
-            device.unlockForConfiguration()
         } catch {
-            print("Torch error: \(error)")
+            isTorchOn = false
         }
     }
 
     public func setCubeSize(_ size: Int) {
-        self.cubeSize = size
+        let clamped = max(2, min(5, size))
+        self.cubeSize = clamped
+        stateLock.lock()
+        _samplingCubeSize = clamped
+        stateLock.unlock()
         resetAllFaces()
     }
 
@@ -307,6 +401,51 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         // Default faces: U=0(White), D=1(Yellow), L=2(Orange), R=3(Red), F=4(Green), B=5(Blue)
         savedFacelets = (0..<6).map { Array(repeating: $0, count: total) }
         liveSampledColors = []
+        liveClassifiedColors = []
+        isScanningComplete = false
+    }
+
+    public func loadFaceletsFlat(_ flat: [Int], size: Int, markScanned: Bool = false) {
+        let clamped = max(2, min(5, size))
+        let nn = clamped * clamped
+        guard flat.count == 6 * nn else { return }
+        self.cubeSize = clamped
+        stateLock.lock()
+        _samplingCubeSize = clamped
+        stateLock.unlock()
+
+        var faces: [[Int]] = []
+        for f in 0..<6 {
+            let start = f * nn
+            faces.append(Array(flat[start..<(start + nn)]))
+        }
+        self.savedFacelets = faces
+        if markScanned {
+            self.faceStatus = Array(repeating: true, count: 6)
+        } else {
+            self.faceStatus = Array(repeating: false, count: 6)
+            self.currentFaceIndex = 0
+            self.isScanningComplete = false
+        }
+    }
+
+    public func getFlatFacelets() -> [Int] {
+        var flat: [Int] = []
+        let nn = cubeSize * cubeSize
+        flat.reserveCapacity(6 * nn)
+        for face in 0..<6 {
+            if face < savedFacelets.count && savedFacelets[face].count == nn {
+                flat.append(contentsOf: savedFacelets[face])
+            } else {
+                flat.append(contentsOf: Array(repeating: face, count: nn))
+            }
+        }
+        return flat
+    }
+
+    public func selectFace(_ index: Int) {
+        guard index >= 0 && index < 6 else { return }
+        currentFaceIndex = index
         isScanningComplete = false
     }
 
@@ -318,7 +457,9 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
         mm.deviceMotionUpdateInterval = 0.05
         mm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self = self, let motion = motion else { return }
-            self.handleMotionUpdate(motion)
+            Task { @MainActor [weak self] in
+                self?.handleMotionUpdate(motion)
+            }
         }
     }
 
@@ -327,6 +468,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     private func handleMotionUpdate(_ motion: CMDeviceMotion) {
+        guard isAutoCaptureEnabled, !isScanningComplete else { return }
         let rotationRate = motion.rotationRate
         let angularSpeed = sqrt(rotationRate.x * rotationRate.x +
                                 rotationRate.y * rotationRate.y +
@@ -334,9 +476,9 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
 
         let now = Date().timeIntervalSince1970
         if angularSpeed < 0.25 {
-            if (now - lastMotionTimestamp) >= 0.35 && !isStableFor035s {
+            if (now - lastMotionTimestamp) >= 0.45 && !isStableFor035s {
                 isStableFor035s = true
-                if lastAngularVelocity > 1.2 && !liveSampledColors.isEmpty {
+                if lastAngularVelocity > 1.2 && liveClassifiedColors.count == cubeSize * cubeSize {
                     captureCurrentFace()
                 }
             }
@@ -348,37 +490,32 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     public func captureCurrentFace() {
+        guard currentFaceIndex >= 0 && currentFaceIndex < 6 else { return }
         let expectedCount = cubeSize * cubeSize
-        if !liveSampledColors.isEmpty && liveSampledColors.count == expectedCount {
-            let classified = liveSampledColors.map { colorToFaceIndex($0) }
-            savedFacelets[currentFaceIndex] = classified
+        if liveClassifiedColors.count == expectedCount {
+            savedFacelets[currentFaceIndex] = liveClassifiedColors
+        } else if liveSampledColors.count == expectedCount {
+            savedFacelets[currentFaceIndex] = liveSampledColors.map { Self.colorToFaceIndex($0) }
         }
         faceStatus[currentFaceIndex] = true
         hapticFeedback?.impactOccurred()
 
-        if currentFaceIndex < 5 {
-            currentFaceIndex += 1
+        if let nextIncomplete = (0..<6).first(where: { !faceStatus[$0] }) {
+            currentFaceIndex = nextIncomplete
         } else {
             isScanningComplete = true
         }
     }
 
     public func setFaceletColor(face: Int, index: Int, colorId: Int) {
-        guard face >= 0 && face < 6, index >= 0 && index < savedFacelets[face].count else { return }
+        guard face >= 0 && face < savedFacelets.count,
+              index >= 0 && index < savedFacelets[face].count,
+              colorId >= 0 && colorId < 6 else { return }
         savedFacelets[face][index] = colorId
         faceStatus[face] = true
     }
 
-    private func colorToFaceIndex(_ lab: LabColor) -> Int {
-        let standardCentroids: [LabColor] = [
-            LabColor(L: 95.0, a: 0.0, b: 0.0),    // 0: White (U)
-            LabColor(L: 85.0, a: -5.0, b: 85.0),  // 1: Yellow (D)
-            LabColor(L: 65.0, a: 45.0, b: 60.0),  // 2: Orange (L)
-            LabColor(L: 50.0, a: 65.0, b: 40.0),  // 3: Red (R)
-            LabColor(L: 55.0, a: -50.0, b: 35.0), // 4: Green (F)
-            LabColor(L: 40.0, a: 10.0, b: -45.0)  // 5: Blue (B)
-        ]
-
+    nonisolated public static func colorToFaceIndex(_ lab: LabColor) -> Int {
         var bestIdx = 0
         var bestDist = Double.greatestFiniteMagnitude
         for (i, c) in standardCentroids.enumerated() {
@@ -392,74 +529,102 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     // AVCaptureVideoDataOutputSampleBufferDelegate
+    // Samples CVPixelBuffer synchronously while locked so baseAddress is never read after unlock.
     nonisolated public func captureOutput(_ output: AVCaptureOutput,
                                           didOutput sampleBuffer: CMSampleBuffer,
                                           from connection: AVCaptureConnection) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let now = CACurrentMediaTime()
+        stateLock.lock()
+        let shouldSample = (now - _lastSampleTimestamp) >= 0.08
+        if shouldSample {
+            _lastSampleTimestamp = now
+        }
+        let n = _samplingCubeSize
+        stateLock.unlock()
 
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        guard shouldSample,
+              n >= 2 && n <= 5,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else { return }
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
-        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        guard width >= 32, height >= 32, bytesPerRow >= width * 4,
+              let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
 
-        Task { @MainActor in
-            let n = self.cubeSize
-            var sampledColors: [LabColor] = []
+        let rawPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
+        let reticlePx = max(n * 8, Int(Double(min(width, height)) * 0.66))
+        let boxSize = reticlePx / n
+        let gridTotal = boxSize * n
+        let startX = (width - gridTotal) / 2
+        let startY = (height - gridTotal) / 2
 
-            let boxSize = min(width, height) / (n + 2)
-            let startX = (width - boxSize * n) / 2
-            let startY = (height - boxSize * n) / 2
+        var sampledColors: [LabColor] = []
+        var classifiedColors: [Int] = []
+        sampledColors.reserveCapacity(n * n)
+        classifiedColors.reserveCapacity(n * n)
 
-            for r in 0..<n {
-                for c in 0..<n {
-                    let cellX = startX + c * boxSize
-                    let cellY = startY + r * boxSize
+        let inset = max(1, boxSize / 4)
+        for r in 0..<n {
+            for c in 0..<n {
+                let cellX = startX + c * boxSize
+                let cellY = startY + r * boxSize
 
-                    let coreInset = max(1, boxSize / 4)
-                    var rSum = 0.0, gSum = 0.0, bSum = 0.0
-                    var sampleCount = 0
+                let minX = max(0, cellX + inset)
+                let maxX = min(width, cellX + boxSize - inset)
+                let minY = max(0, cellY + inset)
+                let maxY = min(height, cellY + boxSize - inset)
 
-                    let minY = max(0, cellY + coreInset)
-                    let maxY = min(height, cellY + boxSize - coreInset)
-                    let minX = max(0, cellX + coreInset)
-                    let maxX = min(width, cellX + boxSize - coreInset)
+                let spanX = max(1, maxX - minX)
+                let spanY = max(1, maxY - minY)
+                let stepX = max(1, spanX / 6)
+                let stepY = max(1, spanY / 6)
 
-                    for y in minY..<maxY {
-                        let rowPtr = baseAddress.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt8.self)
-                        for x in minX..<maxX {
-                            let b = Double(rowPtr[x * 4])
-                            let g = Double(rowPtr[x * 4 + 1])
-                            let r = Double(rowPtr[x * 4 + 2])
-                            rSum += r; gSum += g; bSum += b
-                            sampleCount += 1
-                        }
+                var rSum = 0.0, gSum = 0.0, bSum = 0.0
+                var count = 0
+
+                var y = minY
+                while y < maxY {
+                    let rowBase = y * bytesPerRow
+                    var x = minX
+                    while x < maxX {
+                        let px = rowBase + x * 4
+                        let b = Double(rawPtr[px])
+                        let g = Double(rawPtr[px + 1])
+                        let r = Double(rawPtr[px + 2])
+                        rSum += r
+                        gSum += g
+                        bSum += b
+                        count += 1
+                        x += stepX
                     }
-
-                    if sampleCount > 0 {
-                        let avgR = rSum / Double(sampleCount)
-                        let avgG = gSum / Double(sampleCount)
-                        let avgB = bSum / Double(sampleCount)
-                        sampledColors.append(LabColor.fromRGB(r: avgR, g: avgG, b: avgB))
-                    } else {
-                        sampledColors.append(LabColor(L: 50, a: 0, b: 0))
-                    }
+                    y += stepY
                 }
-            }
 
+                let lab: LabColor
+                if count > 0 {
+                    let inv = 1.0 / Double(count)
+                    lab = LabColor.fromRGB(r: rSum * inv, g: gSum * inv, b: bSum * inv)
+                } else {
+                    lab = LabColor(L: 50.0, a: 0.0, b: 0.0)
+                }
+                sampledColors.append(lab)
+                classifiedColors.append(Self.colorToFaceIndex(lab))
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self = self, self.isSessionRunning else { return }
             self.liveSampledColors = sampledColors
+            self.liveClassifiedColors = classifiedColors
         }
     }
 
     public func getFaceletsCsv() -> String {
-        var flat: [String] = []
-        for face in 0..<6 {
-            for val in savedFacelets[face] {
-                flat.append(String(val))
-            }
-        }
-        return flat.joined(separator: ",")
+        return getFlatFacelets().map(String.init).joined(separator: ",")
     }
 }

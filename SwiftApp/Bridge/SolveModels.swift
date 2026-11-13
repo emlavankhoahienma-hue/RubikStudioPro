@@ -26,10 +26,31 @@ public struct MoveModel: Codable, Equatable, Sendable {
 }
 
 public struct PhaseStepModel: Codable, Identifiable, Sendable {
-    public var id: String { phaseName }
+    public let id: UUID
     public let phaseName: String
     public let notationString: String
     public let moves: [MoveModel]
+
+    private enum CodingKeys: String, CodingKey {
+        case phaseName
+        case notationString
+        case moves
+    }
+
+    public init(id: UUID = UUID(), phaseName: String, notationString: String, moves: [MoveModel]) {
+        self.id = id
+        self.phaseName = phaseName
+        self.notationString = notationString
+        self.moves = moves
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = UUID()
+        self.phaseName = try container.decode(String.self, forKey: .phaseName)
+        self.notationString = try container.decode(String.self, forKey: .notationString)
+        self.moves = try container.decode([MoveModel].self, forKey: .moves)
+    }
 }
 
 public struct SolveResponse: Codable, Sendable {
