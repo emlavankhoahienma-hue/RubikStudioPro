@@ -1,0 +1,52 @@
+name: Build Unsigned IPA (Overnight Gate)
+
+on:
+  push:
+    branches: [ "overnight-build" ]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  build-ipa:
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - name: 1. Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 2. Xcode Version Check
+        run: |
+          xcodebuild -version
+
+      - name: 3. Generate Xcode Project via XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: 4. Build iOS App (Unsigned Release for Device)
+        run: |
+          xcodebuild clean build \
+            -project RubikStudioPro.xcodeproj \
+            -scheme RubikStudioPro \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build_output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 5. Package & Verify Unsigned .IPA Artifact
+        run: |
+          mkdir -p Payload
+          cp -r build_output/Build/Products/Release-iphoneos/RubikStudioPro.app Payload/
+          file Payload/RubikStudioPro.app/RubikStudioPro
+          plutil -p Payload/RubikStudioPro.app/Info.plist
+          zip -r9 RubikStudioPro-Unsigned.ipa Payload
+
+      - name: 6. Upload .IPA to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RubikStudioPro-Unsigned-IPA
+          path: RubikStudioPro-Unsigned.ipa
