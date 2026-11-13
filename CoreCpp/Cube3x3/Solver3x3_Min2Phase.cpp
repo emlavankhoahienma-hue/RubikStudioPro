@@ -49,7 +49,7 @@ static void setUDSliceSorted(State3x3& s, uint16_t coord) {
     s.ep[11] = avail[0];
 }
 
-void Solver3x3_Min2Phase::initTables() {
+static void initTablesImpl() {
     if (tablesReady) return;
 
     // 1. Build Move Tables
@@ -293,6 +293,10 @@ static void searchPhase1(SearchContext& ctx, uint16_t tw, uint16_t fl, uint16_t 
 }
 
 } // namespace
+
+void Solver3x3_Min2Phase::initTables() {
+    initTablesImpl();
+}
 
 SolveResult Solver3x3_Min2Phase::solve(const uint8_t colors[54]) {
     if (!State3x3::validateFacelets(colors)) {
