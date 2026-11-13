@@ -19,12 +19,24 @@ targets:
       - path: SwiftApp
     info:
       path: SwiftApp/Info.plist
+      properties:
+        CFBundleDisplayName: Rubik Studio Pro
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        NSCameraUsageDescription: "Quét 6 mặt khối Rubik để nhận diện màu sắc và giải tự động"
+        NSMotionUsageDescription: "Phát hiện chuyển động xoay khối Rubik để tự động chụp các mặt"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     settings:
       base:
         HEADER_SEARCH_PATHS:
           - "$(SRCROOT)/CoreCpp"
         SWIFT_OBJC_BRIDGING_HEADER: "SwiftApp/Bridge/RubikStudioPro-Bridging-Header.h"
-        GENERATE_INFOPLIST: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: "SwiftApp/Info.plist"
         PRODUCT_BUNDLE_IDENTIFIER: com.rubikstudio.pro
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"

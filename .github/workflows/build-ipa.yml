@@ -43,6 +43,8 @@ jobs:
           cp -r build_output/Build/Products/Release-iphoneos/RubikStudioPro.app Payload/
           file Payload/RubikStudioPro.app/RubikStudioPro
           plutil -p Payload/RubikStudioPro.app/Info.plist
+          plutil -extract NSCameraUsageDescription raw Payload/RubikStudioPro.app/Info.plist
+          plutil -extract NSMotionUsageDescription raw Payload/RubikStudioPro.app/Info.plist
           zip -r9 RubikStudioPro-Unsigned.ipa Payload
 
       - name: 6. Upload .IPA to GitHub Actions Artifacts

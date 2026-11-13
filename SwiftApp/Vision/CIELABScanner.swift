@@ -388,6 +388,7 @@ public class CIELABScanner: NSObject, ObservableObject, AVCaptureVideoDataOutput
     }
 
     private func setTorch(enabled: Bool) {
+        if !enabled && !isTorchOn { return }
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               device.hasTorch, device.isTorchAvailable else {
             isTorchOn = false
