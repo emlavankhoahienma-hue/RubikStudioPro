@@ -478,9 +478,9 @@ State3x3 State3x3::fromFacelets(const uint8_t colors[54]) {
             if (c0 == ref[0] && c1 == ref[1] && c2 == ref[2]) {
                 piece = p; orient = 0; break;
             } else if (c1 == ref[0] && c2 == ref[1] && c0 == ref[2]) {
-                piece = p; orient = 1; break;
-            } else if (c2 == ref[0] && c0 == ref[1] && c1 == ref[2]) {
                 piece = p; orient = 2; break;
+            } else if (c2 == ref[0] && c0 == ref[1] && c1 == ref[2]) {
+                piece = p; orient = 1; break;
             }
         }
         if (piece != -1) {
