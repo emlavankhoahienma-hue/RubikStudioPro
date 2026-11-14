@@ -12,9 +12,9 @@ inline constexpr uint32_t kPrecomputedChecksum = 0xba469986u;
 
 inline HeuristicWeights defaultWeights4x4() {
     HeuristicWeights w;
-    w.wPairedEdge = 100.0000;
+    w.wPairedEdge = 78.4914;
     w.wHalfPair5x5 = 0.0000;
-    w.wUDParked = 16.0000;
+    w.wUDParked = 19.9116;
     w.wSetup1Away = 10.0000;
     w.wMoveCost = 6.2000;
     w.wEqMisaligned = 4.0000;
@@ -27,12 +27,12 @@ inline HeuristicWeights defaultWeights4x4() {
 
 inline HeuristicWeights defaultWeights5x5() {
     HeuristicWeights w;
-    w.wPairedEdge = 110.0000;
+    w.wPairedEdge = 119.5980;
     w.wHalfPair5x5 = 26.0000;
-    w.wUDParked = 18.0000;
+    w.wUDParked = 24.6562;
     w.wSetup1Away = 11.0000;
     w.wMoveCost = 6.0000;
-    w.wEqMisaligned = 4.0000;
+    w.wEqMisaligned = 2.3403;
     w.wBadFlip = 3.5000;
     w.beamWidthFreeslice = 156;
     w.beamWidthL4E = 128;
