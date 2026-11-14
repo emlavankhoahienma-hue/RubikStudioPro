@@ -12,6 +12,7 @@
 // Phase 4: 3x3 Phase using Solver3x3_Min2Phase.
 class Solver4x4_Optimal {
 public:
+    static void initTables();
     static SolveResult solve(const uint8_t colors[96]);
     static SolveResult solveState(const State4x4& state);
 };

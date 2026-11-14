@@ -5,3 +5,5 @@ artifact_output/
 *.o
 *.exe
 RubikStudioPro.xcodeproj
+tools/trainer/status.json
+tools/trainer/stop.flag

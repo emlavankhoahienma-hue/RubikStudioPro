@@ -12,6 +12,7 @@
 // Phase 4: 3x3 Stage using Solver3x3_Min2Phase.
 class Solver5x5_Optimal {
 public:
+    static void initTables();
     static SolveResult solve(const uint8_t colors[150]);
     static SolveResult solveState(const State5x5& state);
 };
